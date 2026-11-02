@@ -1329,11 +1329,9 @@ public class MainActivity extends AppCompatActivity {
         try {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm == null) return "";
-            LinkProperties lp = cm.getLinkProperties(ConnectivityManager.TYPE_WIFI);
-            if (lp == null) {
-                android.net.Network n = cm.getActiveNetwork();
-                if (n != null) lp = cm.getLinkProperties(n);
-            }
+            android.net.Network n = cm.getActiveNetwork();
+            if (n == null) return "";
+            LinkProperties lp = cm.getLinkProperties(n);
             if (lp == null) return "";
             for (RouteInfo r : lp.getRoutes()) {
                 if (r.isDefaultRoute() && r.getGateway() instanceof java.net.Inet4Address) {
@@ -1348,7 +1346,9 @@ public class MainActivity extends AppCompatActivity {
         try {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm == null) return "";
-            LinkProperties lp = cm.getLinkProperties(ConnectivityManager.TYPE_WIFI);
+            android.net.Network n = cm.getActiveNetwork();
+            if (n == null) return "";
+            LinkProperties lp = cm.getLinkProperties(n);
             if (lp == null) return "";
             StringBuilder sb = new StringBuilder();
             for (InetAddress a : lp.getDnsServers()) {
