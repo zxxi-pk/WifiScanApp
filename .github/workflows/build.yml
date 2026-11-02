@@ -28,11 +28,12 @@ jobs:
           unzip -q cmdline-tools.zip -d "$SDK/cmdline-tools"
           mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
           rm -f cmdline-tools.zip
-          echo "y" | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" --licenses >/dev/null || true
-          "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" \
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" \
             "platform-tools" \
             "platforms;android-33" \
-            "build-tools;33.0.1"
+            "build-tools;33.0.1" >/dev/null 2>&1 || true
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" --list_installed 2>/dev/null | grep -E "platform-tools|platforms;android-33|build-tools;33.0.1" || (echo "SDK packages missing" && exit 1)
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
 
       - name: Build debug APK
