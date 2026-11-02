@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>出租屋 WiFi 宽带体检</title>
+<style>
+  :root{
+    --bg:#0f1220; --card:#1a1f35; --acc:#4f8cff; --ok:#27c08a; --warn:#f5a623; --bad:#ff5d5d; --txt:#e8ecf5; --sub:#9aa3bd;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--txt);padding:16px;line-height:1.6}
+  .wrap{max-width:560px;margin:0 auto}
+  h1{font-size:20px;margin:8px 0 4px}
+  .desc{color:var(--sub);font-size:13px;margin-bottom:16px}
+  .card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 4px 20px rgba(0,0,0,.25)}
+  .btn{display:block;width:100%;border:none;border-radius:12px;background:var(--acc);color:#fff;font-size:16px;padding:14px;font-weight:600;cursor:pointer}
+  .btn:disabled{opacity:.6}
+  .row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+  .row:last-child{border-bottom:none}
+  .row .k{color:var(--sub);font-size:14px}
+  .row .v{font-weight:600;font-size:15px;text-align:right;max-width:60%}
+  .big{font-size:34px;font-weight:700;text-align:center;margin:6px 0}
+  .unit{font-size:15px;color:var(--sub);font-weight:400}
+  .label{text-align:center;color:var(--sub);font-size:13px}
+  .status{font-size:13px;color:var(--sub);margin-top:8px;min-height:20px}
+  .verdict{font-size:15px;font-weight:600;margin:4px 0}
+  .tip{font-size:13px;color:var(--sub);margin:4px 0;padding-left:14px;position:relative}
+  .tip:before{content:"•";position:absolute;left:0;color:var(--acc)}
+  .badge{display:inline-block;padding:3px 10px;border-radius:8px;font-size:14px;font-weight:600}
+  .b-ok{background:rgba(39,192,138,.18);color:var(--ok)}
+  .b-warn{background:rgba(245,166,35,.18);color:var(--warn)}
+  .b-bad{background:rgba(255,93,93,.18);color:var(--bad)}
+  .probe{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;color:var(--sub);border-bottom:1px solid rgba(255,255,255,.05)}
+  .probe:last-child{border-bottom:none}
+  .spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📶 出租屋 WiFi 宽带体检</h1>
+  <div class="desc">手机浏览器就能跑，帮你判断是「WiFi 信号差」还是「带宽被挤/被限速」。无需安装，离线也能看说明。</div>
+
+  <div class="card">
+    <button class="btn" id="startBtn">开始诊断</button>
+    <div class="status" id="status">点击上方按钮开始。建议在 WiFi 下、手机放在常用位置测试。</div>
+  </div>
+
+  <div class="card" id="infoCard" style="display:none">
+    <div class="label">你的网络环境</div>
+    <div id="infoRows"></div>
+  </div>
+
+  <div class="card" id="latencyCard" style="display:none">
+    <div class="label">延迟（点到外网，近似 RTT）</div>
+    <div class="big" id="latVal">--<span class="unit"> ms</span></div>
+    <div id="latRows"></div>
+  </div>
+
+  <div class="card" id="speedCard" style="display:none">
+    <div class="label">下载速度</div>
+    <div class="big" id="dlVal">--<span class="unit"> Mbps</span></div>
+    <div class="label" style="margin-top:10px">上传速度</div>
+    <div class="big" id="ulVal">--<span class="unit"> Mbps</span></div>
+  </div>
+
+  <div class="card" id="verdictCard" style="display:none">
+    <div class="label">诊断结论</div>
+    <div class="verdict" id="verdict"></div>
+    <div id="tips"></div>
+  </div>
+
+  <div class="card">
+    <div class="label">出租屋慢卡的 6 个常见原因（对照自查）</div>
+    <div class="tip">多户共享一条宽带，晚高峰抢带宽（最常见）</div>
+    <div class="tip">房东对每户做了限速</div>
+    <div class="tip">2.4GHz 信道拥堵，邻居 WiFi 太多</div>
+    <div class="tip">路由器老旧 / 塞在弱电箱，信号差</div>
+    <div class="tip">隔墙远，手机只剩 1–2 格信号</div>
+    <div class="tip">DNS 慢或被污染，开网页卡但下载不一定慢</div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+function setStatus(t, spin){
+  $('status').innerHTML = (spin?'<span class="spinner"></span>':'') + t;
+}
+
+async function ping(url, timeout){
+  timeout = timeout || 6000;
+  const ctrl = new AbortController();
+  const t = setTimeout(()=>ctrl.abort(), timeout);
+  const start = performance.now();
+  try{
+    await fetch(url, {mode:'no-cors', cache:'no-store', signal:ctrl.signal});
+    const end = performance.now();
+    clearTimeout(t);
+    return end-start;
+  }catch(e){
+    clearTimeout(t);
+    return null;
+  }
+}
+
+const LAT_ENDPOINTS = [
+  {name:'百度', url:'https://www.baidu.com'},
+  {name:'淘宝', url:'https://www.taobao.com'},
+  {name:'腾讯', url:'https://www.qq.com'},
+  {name:'Cloudflare', url:'https://speed.cloudflare.com/__ping'},
+];
+
+async function measureLatency(){
+  $('latencyCard').style.display='block';
+  $('latRows').innerHTML='';
+  const results = [];
+  let okCount = 0;
+  for(const ep of LAT_ENDPOINTS){
+    setStatus('正在测延迟：'+ep.name, true);
+    const r = await ping(ep.url);
+    if(r!=null) okCount++;
+    results.push({name:ep.name, ms:r});
+    const row = document.createElement('div');
+    row.className='probe';
+    row.innerHTML = '<span>'+ep.name+'</span><span>'+(r==null?'超时/不可达':Math.round(r)+' ms')+'</span>';
+    $('latRows').appendChild(row);
+    await sleep(120);
+  }
+  const reachable = results.filter(r=>r.ms!=null).map(r=>r.ms);
+  const best = reachable.length? Math.min.apply(null, reachable):null;
+  $('latVal').innerHTML = (best==null?'--':Math.round(best)) + '<span class="unit"> ms</span>';
+  return {best:best, ok: okCount>0, results:results};
+}
+
+async function measureDownload(){
+  const sizes = [5e6, 10e6, 25e6];
+  let best = 0, ok = false;
+  for(const sz of sizes){
+    const ctrl = new AbortController();
+    const to = setTimeout(()=>ctrl.abort(), 12000);
+    const start = performance.now();
+    try{
+      const res = await fetch('https://speed.cloudflare.com/__down?bytes='+sz, {signal:ctrl.signal, cache:'no-store'});
+      const buf = await res.arrayBuffer();
+      clearTimeout(to);
+      const end = performance.now();
+      const dur = (end-start)/1000;
+      if(dur>0){ best = Math.max(best, (buf.byteLength*8/dur)/1e6); ok = true; }
+    }catch(e){ clearTimeout(to); }
+    await sleep(200);
+  }
+  return {speed:best, ok:ok};
+}
+
+async function measureUpload(){
+  const size = 5e6;
+  const data = new Uint8Array(size);
+  const ctrl = new AbortController();
+  const to = setTimeout(()=>ctrl.abort(), 12000);
+  const start = performance.now();
+  try{
+    await fetch('https://speed.cloudflare.com/__up?bytes='+size, {method:'POST', body:data, signal:ctrl.signal});
+    clearTimeout(to);
+    const end = performance.now();
+    const dur=(end-start)/1000;
+    return {speed: dur>0? (size*8/dur)/1e6 : 0, ok: dur>0};
+  }catch(e){ clearTimeout(to); return {speed:0, ok:false}; }
+}
+
+function showInfo(){
+  $('infoCard').style.display='block';
+  const c = navigator.connection || {};
+  const ua = navigator.userAgent;
+  const sys = /iPhone|iPad/.test(ua)?'iOS':(/Android/.test(ua)?'Android':'其他');
+  const rows = [
+    ['操作系统', sys],
+    ['网络类型', (c.type||'未知') + (c.effectiveType?(' / '+c.effectiveType):'')],
+    ['系统预估下行', c.downlink? (c.downlink+' Mbps'):'未知'],
+    ['系统预估 RTT', c.rtt? (c.rtt+' ms'):'未知'],
+    ['省流量模式', c.saveData? '已开启':'关闭'],
+    ['WiFi 信号格', '请对照手机状态栏（网页读不到）'],
+  ];
+  $('infoRows').innerHTML = rows.map(function(r){return '<div class="row"><span class="k">'+r[0]+'</span><span class="v">'+r[1]+'</span></div>';}).join('');
+}
+
+function verdict(lat, dl, ul){
+  $('verdictCard').style.display='block';
+  let v='', cls='b-warn', tips=[];
+  if(!lat.ok && !dl.ok){
+    v='⚠️ 外网测速点都不可达'; cls='b-bad';
+    tips.push('可能当前完全上不了外网，或所有测速节点在你的网络下被挡');
+    tips.push('先打开浏览器随便开个网页确认能否上网');
+  } else if(!dl.ok){
+    v='⚠️ 下载测速节点不可达，无法测速'; cls='b-warn';
+    tips.push('Cloudflare 测速节点在你的网络下可能不通（国内常见）');
+    if(lat.best!=null) tips.push('你到外网延迟约 '+Math.round(lat.best)+' ms，可作参考');
+    tips.push('请用延迟结果 + 手机信号格 + 实际刷视频体验综合判断');
+  } else {
+    const dlMbps = dl.speed;
+    if(lat.best!=null && lat.best>200) tips.push('延迟偏高（>200ms），游戏/视频通话会卡，多为带宽占满或跳数多');
+    if(dlMbps < 10){ v='🐢 下载偏低（<10 Mbps）'; cls='b-bad';
+      tips.push('信号满格仍慢 → 多半房东限速或多户抢带宽');
+      tips.push('信号 1-2 格 → WiFi 覆盖差，靠近路由或加中继');
+    } else if(dlMbps < 50){ v='🙂 速度一般（10-50 Mbps）'; cls='b-warn';
+      tips.push('刷视频够用，多人同时用会卡，晚高峰明显');
+    } else { v='🚀 速度正常（≥50 Mbps）'; cls='b-ok';
+      tips.push('网速本身没问题，卡顿更可能是 WiFi 信号或设备');
+    }
+    if(ul.ok && ul.speed < 5) tips.push('上传较慢（<5 Mbps），发视频/传文件慢');
+  }
+  tips.push('满格慢=带宽问题；少格慢=信号问题');
+  tips.push('可让房东给你单独限速/桥接，或排查是否蹭网、设备太多');
+  $('verdict').innerHTML = '<span class="badge '+cls+'">'+v+'</span>';
+  $('tips').innerHTML = tips.map(function(t){return '<div class="tip">'+t+'</div>';}).join('');
+}
+
+$('startBtn').addEventListener('click', async function(){
+  $('startBtn').disabled = true;
+  $('latRows').innerHTML=''; $('tips').innerHTML='';
+  $('infoCard').style.display='none'; $('latencyCard').style.display='none';
+  $('speedCard').style.display='none'; $('verdictCard').style.display='none';
+  showInfo();
+  setStatus('开始检测…', true);
+  await sleep(300);
+  const lat = await measureLatency();
+  setStatus('正在测下载速度…', true);
+  $('speedCard').style.display='block';
+  const dl = await measureDownload();
+  $('dlVal').innerHTML = (dl.ok? dl.speed.toFixed(1):'--') + '<span class="unit"> Mbps</span>';
+  setStatus('正在测上传速度…', true);
+  const ul = await measureUpload();
+  $('ulVal').innerHTML = (ul.ok? ul.speed.toFixed(1):'--') + '<span class="unit"> Mbps</span>';
+  verdict(lat, dl, ul);
+  setStatus('✅ 诊断完成，结论见下方。', false);
+  $('startBtn').disabled = false;
+});
+</script>
+</body>
+</html>
