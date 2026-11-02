@@ -1,36 +1,118 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/scroll"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true">
 
     <LinearLayout
         android:orientation="vertical"
-        android:padding="14dp"
+        android:padding="12dp"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
-        <Button
-            android:id="@+id/check"
-            android:text="① 一键体检（10 秒出结论）"
+        <TextView
+            android:text="出租屋 WiFi 体检"
+            android:textSize="18sp"
             android:textStyle="bold"
+            android:paddingBottom="4dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
         <TextView
-            android:id="@+id/verdict"
-            android:text="① 一键体检：测你到路由器(第一跳)、到外网，分清信号问题还是带宽问题。\n② 扫周边 WiFi：看邻居占了哪个信道。\n③ 测网速：量上下行到底多少 Mbps（一个 App 搞定，不用再开网页）。\n④ 扫局域网设备：看有几台设备连着，哪台陌生。"
-            android:padding="12dp"
-            android:textSize="13sp"
+            android:text="点哪一项，结果就出在那一项下面。\n口诀：满格慢=带宽问题；少格慢=信号问题"
+            android:textSize="12sp"
+            android:paddingBottom="12dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
+        <!-- ================= ① 一键体检 ================= -->
+        <Button
+            android:id="@+id/check"
+            android:text="① 一键体检（分信号 / 带宽）"
+            android:textStyle="bold"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <LinearLayout
+            android:id="@+id/boxCheck"
+            android:orientation="vertical"
+            android:visibility="gone"
+            android:background="#12000000"
+            android:padding="10dp"
+            android:layout_marginBottom="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <ProgressBar
+                android:id="@+id/pbCheck"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:indeterminate="true"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <TextView
+                android:id="@+id/statusCheck"
+                android:textSize="12sp"
+                android:paddingTop="6dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <TextView
+                android:id="@+id/resultCheck"
+                android:textSize="13sp"
+                android:paddingTop="8dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <!-- ================= ② 扫周边 WiFi ================= -->
         <Button
             android:id="@+id/scan"
-            android:text="② 扫描周边 WiFi（看信道拥堵）"
+            android:text="② 扫周边 WiFi（看信道拥堵）"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
+        <LinearLayout
+            android:id="@+id/boxScan"
+            android:orientation="vertical"
+            android:visibility="gone"
+            android:background="#12000000"
+            android:padding="10dp"
+            android:layout_marginBottom="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <ProgressBar
+                android:id="@+id/pbScan"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:indeterminate="true"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <TextView
+                android:id="@+id/statusScan"
+                android:textSize="12sp"
+                android:paddingTop="6dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <TextView
+                android:id="@+id/resultScan"
+                android:textSize="13sp"
+                android:paddingTop="8dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <LinearLayout
+                android:id="@+id/apList"
+                android:orientation="vertical"
+                android:paddingTop="6dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <!-- ================= ③ 测网速 ================= -->
         <Button
             android:id="@+id/btnSpeed"
             android:text="③ 测网速（上下行 Mbps）"
@@ -38,15 +120,83 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
+        <LinearLayout
+            android:id="@+id/boxSpeed"
+            android:orientation="vertical"
+            android:visibility="gone"
+            android:background="#12000000"
+            android:padding="10dp"
+            android:layout_marginBottom="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <ProgressBar
+                android:id="@+id/pbSpeed"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:indeterminate="false"
+                android:max="100"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <TextView
+                android:id="@+id/statusSpeed"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:paddingTop="8dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <TextView
+                android:id="@+id/resultSpeed"
+                android:textSize="13sp"
+                android:paddingTop="8dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <!-- ================= ④ 扫局域网设备 ================= -->
         <Button
             android:id="@+id/btnDevScan"
-            android:text="④ 扫局域网设备（看谁在蹭网）"
+            android:text="④ 扫局域网设备（谁在连 / 什么设备）"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
+        <LinearLayout
+            android:id="@+id/boxDev"
+            android:orientation="vertical"
+            android:visibility="gone"
+            android:background="#12000000"
+            android:padding="10dp"
+            android:layout_marginBottom="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <ProgressBar
+                android:id="@+id/pbDev"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:indeterminate="true"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <TextView
+                android:id="@+id/statusDev"
+                android:textSize="12sp"
+                android:paddingTop="6dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <LinearLayout
+                android:id="@+id/devList"
+                android:orientation="vertical"
+                android:paddingTop="6dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <!-- ================= 可直接动手改 ================= -->
         <TextView
-            android:text="下面五个能直接动手改："
-            android:paddingTop="14dp"
+            android:text="可以直接动手改："
+            android:paddingTop="8dp"
             android:paddingBottom="6dp"
             android:textSize="13sp"
             android:textStyle="bold"
@@ -55,7 +205,7 @@
 
         <Button
             android:id="@+id/btnRouter"
-            android:text="🔧 打开路由器后台（改信道/限速）"
+            android:text="🔧 打开路由器后台（改信道 / 踢设备）"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
@@ -67,7 +217,7 @@
 
         <Button
             android:id="@+id/btnCopy"
-            android:text="📋 复制体检报告"
+            android:text="📋 复制最近一份报告"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
@@ -85,16 +235,11 @@
 
         <TextView
             android:id="@+id/tvTip"
-            android:text="提示：路由器后台地址就是「体检」里显示的第一跳 IP，密码多半在路由器背面。"
+            android:text="提示：路由器后台地址就是体检里显示的第一跳 IP，密码多半在路由器背面。"
             android:paddingTop="8dp"
-            android:paddingBottom="10dp"
+            android:paddingBottom="16dp"
             android:textSize="12sp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
-
-        <ListView
-            android:id="@+id/list"
-            android:layout_width="match_parent"
-            android:layout_height="300dp" />
     </LinearLayout>
 </ScrollView>
