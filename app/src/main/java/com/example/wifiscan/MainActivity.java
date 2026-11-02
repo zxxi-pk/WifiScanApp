@@ -5,8 +5,8 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.ConnectivityManager;
 import android.net.LinkProperties;
@@ -43,9 +43,11 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URL;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -64,11 +66,15 @@ public class MainActivity extends AppCompatActivity {
 
     // ---------- 视图 ----------
     private ScrollView scroll;
-    private LinearLayout boxCheck, boxScan, boxSpeed, boxDev, apList, devList;
+    private LinearLayout cardCheck, cardScan, cardSpeed, cardDev, cardHist;
+    private LinearLayout bodyCheck, bodyScan, bodySpeed, bodyDev, bodyHist;
+    private TextView arrowCheck, arrowScan, arrowSpeed, arrowDev, arrowHist;
+    private TextView hintCheck, hintScan, hintSpeed, hintDev, hintHist;
     private ProgressBar pbCheck, pbScan, pbSpeed, pbDev;
     private TextView statusCheck, resultCheck, statusScan, resultScan,
             statusSpeed, resultSpeed, statusDev;
-    private TextView tvTip;
+    private LinearLayout apList, devList, histList;
+    private TextView tvHistEmpty, tvTip, tvSub;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -77,6 +83,12 @@ public class MainActivity extends AppCompatActivity {
 
     private String gwIp = "";
     private String myIp = "";
+
+    private static final String HINT_CHECK = "分两段 ping，看是哪一段慢";
+    private static final String HINT_SCAN = "看 2.4G 该改成哪个信道";
+    private static final String HINT_SPEED = "上下行 Mbps，边下边看数";
+    private static final String HINT_DEV = "设备类型、品牌、型号";
+    private static final String HINT_HIST = "点一条看当时的完整结果";
 
     // ============================================================
     // OUI 厂商表
@@ -135,16 +147,38 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         scroll = findViewById(R.id.scroll);
-        boxCheck = findViewById(R.id.boxCheck);
-        boxScan = findViewById(R.id.boxScan);
-        boxSpeed = findViewById(R.id.boxSpeed);
-        boxDev = findViewById(R.id.boxDev);
-        apList = findViewById(R.id.apList);
-        devList = findViewById(R.id.devList);
+        tvSub = findViewById(R.id.tvSub);
+        tvTip = findViewById(R.id.tvTip);
+
+        cardCheck = findViewById(R.id.cardCheck);
+        cardScan = findViewById(R.id.cardScan);
+        cardSpeed = findViewById(R.id.cardSpeed);
+        cardDev = findViewById(R.id.cardDev);
+        cardHist = findViewById(R.id.cardHist);
+
+        bodyCheck = findViewById(R.id.bodyCheck);
+        bodyScan = findViewById(R.id.bodyScan);
+        bodySpeed = findViewById(R.id.bodySpeed);
+        bodyDev = findViewById(R.id.bodyDev);
+        bodyHist = findViewById(R.id.bodyHist);
+
+        arrowCheck = findViewById(R.id.arrowCheck);
+        arrowScan = findViewById(R.id.arrowScan);
+        arrowSpeed = findViewById(R.id.arrowSpeed);
+        arrowDev = findViewById(R.id.arrowDev);
+        arrowHist = findViewById(R.id.arrowHist);
+
+        hintCheck = findViewById(R.id.hintCheck);
+        hintScan = findViewById(R.id.hintScan);
+        hintSpeed = findViewById(R.id.hintSpeed);
+        hintDev = findViewById(R.id.hintDev);
+        hintHist = findViewById(R.id.hintHist);
+
         pbCheck = findViewById(R.id.pbCheck);
         pbScan = findViewById(R.id.pbScan);
         pbSpeed = findViewById(R.id.pbSpeed);
         pbDev = findViewById(R.id.pbDev);
+
         statusCheck = findViewById(R.id.statusCheck);
         resultCheck = findViewById(R.id.resultCheck);
         statusScan = findViewById(R.id.statusScan);
@@ -152,33 +186,90 @@ public class MainActivity extends AppCompatActivity {
         statusSpeed = findViewById(R.id.statusSpeed);
         resultSpeed = findViewById(R.id.resultSpeed);
         statusDev = findViewById(R.id.statusDev);
-        tvTip = findViewById(R.id.tvTip);
+
+        apList = findViewById(R.id.apList);
+        devList = findViewById(R.id.devList);
+        histList = findViewById(R.id.histList);
+        tvHistEmpty = findViewById(R.id.tvHistEmpty);
 
         gwIp = getGatewayIp();
         myIp = getLocalIp();
 
-        findViewById(R.id.check).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { startCheck(); }
+        // ---------- 折叠 ----------
+        bindFold(findViewById(R.id.headCheck), bodyCheck, arrowCheck, hintCheck, HINT_CHECK);
+        bindFold(findViewById(R.id.headScan), bodyScan, arrowScan, hintScan, HINT_SCAN);
+        bindFold(findViewById(R.id.headSpeed), bodySpeed, arrowSpeed, hintSpeed, HINT_SPEED);
+        bindFold(findViewById(R.id.headDev), bodyDev, arrowDev, hintDev, HINT_DEV);
+        bindFold(findViewById(R.id.headHist), bodyHist, arrowHist, hintHist, HINT_HIST);
+
+        findViewById(R.id.foldCheck).setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { closeCard(bodyCheck, arrowCheck, hintCheck, HINT_CHECK); }
         });
-        findViewById(R.id.scan).setOnClickListener(new View.OnClickListener() {
+        findViewById(R.id.foldScan).setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { closeCard(bodyScan, arrowScan, hintScan, HINT_SCAN); }
+        });
+        findViewById(R.id.foldSpeed).setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { closeCard(bodySpeed, arrowSpeed, hintSpeed, HINT_SPEED); }
+        });
+        findViewById(R.id.foldDev).setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { closeCard(bodyDev, arrowDev, hintDev, HINT_DEV); }
+        });
+
+        // ---------- 开始检测 ----------
+        findViewById(R.id.headCheck).setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                if (ContextCompat.checkSelfPermission(MainActivity.this,
-                        Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                    ActivityCompat.requestPermissions(MainActivity.this,
-                            new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 7);
-                    toast("请允许定位权限，扫描周边 WiFi 才能读到列表");
-                    return;
-                }
-                startScan();
+                boolean wasOpen = bodyCheck.getVisibility() == View.VISIBLE;
+                toggle(bodyCheck, arrowCheck, hintCheck, HINT_CHECK);
+                if (!wasOpen && reportCheck.length() == 0) startCheck();
             }
         });
-        findViewById(R.id.btnSpeed).setOnClickListener(new View.OnClickListener() {
+        findViewById(R.id.headScan).setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                boolean wasOpen = bodyScan.getVisibility() == View.VISIBLE;
+                toggle(bodyScan, arrowScan, hintScan, HINT_SCAN);
+                if (!wasOpen && reportScan.length() == 0) requestScan();
+            }
+        });
+        findViewById(R.id.headSpeed).setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                boolean wasOpen = bodySpeed.getVisibility() == View.VISIBLE;
+                toggle(bodySpeed, arrowSpeed, hintSpeed, HINT_SPEED);
+                if (!wasOpen && reportSpeed.length() == 0) startSpeed();
+            }
+        });
+        findViewById(R.id.headDev).setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                boolean wasOpen = bodyDev.getVisibility() == View.VISIBLE;
+                toggle(bodyDev, arrowDev, hintDev, HINT_DEV);
+                if (!wasOpen && reportDev.length() == 0) startDevScan();
+            }
+        });
+
+        findViewById(R.id.againCheck).setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { startCheck(); }
+        });
+        findViewById(R.id.againScan).setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { requestScan(); }
+        });
+        findViewById(R.id.againSpeed).setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { startSpeed(); }
         });
-        findViewById(R.id.btnDevScan).setOnClickListener(new View.OnClickListener() {
+        findViewById(R.id.againDev).setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { startDevScan(); }
         });
 
+        findViewById(R.id.btnHistClear).setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                prefs().edit().remove(KEY_HIST).apply();
+                histList.removeAllViews();
+                tvHistEmpty.setVisibility(View.VISIBLE);
+                hintHist.setTag("");
+                hintHist.setText(HINT_HIST);
+                toast("记录已清空");
+            }
+        });
+
+        // ---------- 动手改 ----------
         findViewById(R.id.btnRouter).setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 String ip = gwIp == null || gwIp.length() == 0 ? "192.168.1.1" : gwIp;
@@ -243,8 +334,160 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        tvTip.setText("路由器后台：" + (gwIp == null || gwIp.length() == 0 ? "没读到网段" : gwIp)
-                + "（密码多半贴在路由器背面）\n本机 IP：" + (myIp == null ? "?" : myIp));
+        tvTip.setText("路由器后台 " + (gwIp == null || gwIp.length() == 0 ? "（没读到网段）" : gwIp)
+                + "，密码多半贴在路由器背面。本机 IP " + (myIp == null || myIp.length() == 0 ? "?" : myIp));
+        tvSub.setText("点卡片标题展开，测完自动收起；四次检测都会留一条记录");
+
+        loadHistory();
+    }
+
+    // ============================================================
+    // 折叠 / 展开
+    // ============================================================
+    private void bindFold(final LinearLayout head, final LinearLayout body,
+                          final TextView arrow, final TextView hint, final String def) {
+        // 由各卡片的 head 单独处理（要同时触发检测），这里只留占位
+        if (head == null || body == null) return;
+    }
+
+    private void toggle(LinearLayout body, TextView arrow, TextView hint, String def) {
+        boolean open = body.getVisibility() == View.VISIBLE;
+        body.setVisibility(open ? View.GONE : View.VISIBLE);
+        arrow.setText(open ? "▸" : "▾");
+        Object tag = hint.getTag();
+        String sum = tag instanceof String ? (String) tag : "";
+        hint.setText(open ? (sum.length() > 0 ? sum : def) : def);
+    }
+
+    private void openCard(LinearLayout body, TextView arrow, TextView hint, String def) {
+        body.setVisibility(View.VISIBLE);
+        arrow.setText("▾");
+        hint.setText(def);
+    }
+
+    private void closeCard(LinearLayout body, TextView arrow, TextView hint, String def) {
+        body.setVisibility(View.GONE);
+        arrow.setText("▸");
+        Object tag = hint.getTag();
+        String sum = tag instanceof String ? (String) tag : "";
+        hint.setText(sum.length() > 0 ? sum : def);
+    }
+
+    private void setSummary(TextView hint, String s, String def) {
+        hint.setTag(s);
+        if (hint.getText() != null && hint.getText().toString().equals(def)) hint.setText(def);
+    }
+
+    // ============================================================
+    // 历史记录
+    // ============================================================
+    private static final String KEY_HIST = "hist_v1";
+    private static final String SEP = "\u0001";
+    private static final int HIST_MAX = 20;
+
+    private SharedPreferences prefs() {
+        return getSharedPreferences("wifiscan", MODE_PRIVATE);
+    }
+
+    private void saveHist(String kind, String summary, String full) {
+        try {
+            String old = prefs().getString(KEY_HIST, "");
+            List<String> recs = new ArrayList<>();
+            if (old != null && old.length() > 0) {
+                String[] arr = old.split(SEP);
+                for (String s : arr) {
+                    if (s != null && s.trim().length() > 0) recs.add(s);
+                }
+                if (recs.size() > 200) recs = recs.subList(0, 200);
+            }
+            StringBuilder one = new StringBuilder();
+            one.append(System.currentTimeMillis()).append('|')
+                    .append(kind).append('|')
+                    .append(summary).append('|')
+                    .append(full);
+            List<String> out = new ArrayList<>();
+            out.add(one.toString());
+            for (String s : recs) {
+                if (out.size() >= HIST_MAX) break;
+                out.add(s);
+            }
+            StringBuilder joined = new StringBuilder();
+            for (String s : out) {
+                if (joined.length() > 0) joined.append(SEP);
+                joined.append(s);
+            }
+            prefs().edit().putString(KEY_HIST, joined.toString()).apply();
+            loadHistory();
+        } catch (Exception ignored) { }
+    }
+
+    private void loadHistory() {
+        histList.removeAllViews();
+        String old = prefs().getString(KEY_HIST, "");
+        if (old == null || old.trim().length() == 0) {
+            tvHistEmpty.setVisibility(View.VISIBLE);
+            hintHist.setTag("");
+            hintHist.setText(HINT_HIST);
+            return;
+        }
+        List<String> recs = new ArrayList<>();
+        for (String s : old.split(SEP)) {
+            if (s != null && s.trim().length() > 0) recs.add(s);
+        }
+        tvHistEmpty.setVisibility(recs.isEmpty() ? View.VISIBLE : View.GONE);
+        int shown = 0;
+        for (String r : recs) {
+            String[] p = r.split("\\|", 4);
+            if (p.length < 4) continue;
+            long t;
+            try { t = Long.parseLong(p[0]); } catch (Exception e) { continue; }
+            addHistRow(t, p[1], p[2], p[3]);
+            shown++;
+        }
+        if (shown == 0) tvHistEmpty.setVisibility(View.VISIBLE);
+        hintHist.setTag(shown > 0 ? ("最近 " + shown + " 条，点开看详情") : "");
+    }
+
+    private void addHistRow(final long time, String kind, String summary, final String full) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setBackgroundResource(R.drawable.inner_white);
+        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(8);
+        row.setLayoutParams(lp);
+
+        String when;
+        try {
+            when = new SimpleDateFormat("MM-dd HH:mm", Locale.US).format(new Date(time));
+        } catch (Exception e) {
+            when = "--";
+        }
+
+        TextView head = new TextView(this);
+        head.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        head.setTextColor(0xFF4A4453);
+        head.setText(when + "  ·  " + kind + "\n" + summary);
+        head.setLineSpacing(dp(3), 1f);
+        row.addView(head);
+
+        final TextView detail = new TextView(this);
+        detail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        detail.setTextColor(0xFF5A5462);
+        detail.setText(full);
+        detail.setPadding(0, dp(8), 0, 0);
+        detail.setLineSpacing(dp(3), 1f);
+        detail.setTextIsSelectable(true);
+        detail.setVisibility(View.GONE);
+        row.addView(detail);
+
+        head.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                detail.setVisibility(detail.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+            }
+        });
+        histList.addView(row);
     }
 
     // ============================================================
@@ -253,19 +496,19 @@ public class MainActivity extends AppCompatActivity {
     private void startCheck() {
         if (busyCheck) { toast("体检正在跑，等一下"); return; }
         busyCheck = true;
-        boxCheck.setVisibility(View.VISIBLE);
+        openCard(bodyCheck, arrowCheck, hintCheck, HINT_CHECK);
         pbCheck.setIndeterminate(false);
         pbCheck.setMax(16);
         pbCheck.setProgress(0);
+        statusCheck.setText("");
         resultCheck.setText("");
-        scrollTo(boxCheck);
+        scrollTo(cardCheck);
 
         new Thread(new Runnable() {
             public void run() {
                 long t0 = System.currentTimeMillis();
                 final String gw = gwIp == null || gwIp.length() == 0 ? "" : gwIp;
 
-                // --- 第一跳 ---
                 if (gw.length() == 0) {
                     ui.post(new Runnable() {
                         public void run() {
@@ -291,7 +534,6 @@ public class MainActivity extends AppCompatActivity {
                         }
                     });
 
-                    // --- 出网 ---
                     ui.post(new Runnable() {
                         public void run() { statusCheck.setText("第 2 段：手机 → 外网 (223.5.5.5)，发 8 个包…"); }
                     });
@@ -313,11 +555,17 @@ public class MainActivity extends AppCompatActivity {
                     final long cost = System.currentTimeMillis() - t0;
                     final String rep = buildCheckReport(gw, g, p, wb, cost);
                     reportCheck = rep;
+
+                    final String sum = String.format(Locale.US,
+                            "第一跳 %.0fms / 出网 %.0fms", g.avg(), p.avg());
                     ui.post(new Runnable() {
                         public void run() {
-                            statusCheck.setText("体检完成，用时 " + cost / 1000.0 + " 秒");
+                            statusCheck.setText("体检完成，用时 " + (cost / 1000.0) + " 秒");
                             pbCheck.setProgress(16);
                             resultCheck.setText(rep);
+                            setSummary(hintCheck, sum, HINT_CHECK);
+                            hintCheck.setText(sum);
+                            saveHist("一键体检", sum, rep);
                         }
                     });
                 } else {
@@ -327,6 +575,7 @@ public class MainActivity extends AppCompatActivity {
                         public void run() {
                             statusCheck.setText("体检中断");
                             resultCheck.setText(rep);
+                            hintCheck.setText("没连上 WiFi");
                         }
                     });
                 }
@@ -360,7 +609,7 @@ public class MainActivity extends AppCompatActivity {
             sb.append("这类卡顿是你自己能修的，跟运营商无关。\n\n");
             sb.append("按顺序试：\n");
             sb.append("1. 走到路由器 2 米内再测一遍。若明显变好 = 隔墙/距离问题，换个位置或加个中继。\n");
-            sb.append("2. 点「② 扫周边 WiFi」看信道。2.4G 上 5、6、7、8 这几个数是挤在一起的，\n");
+            sb.append("2. 点「② 周边 WiFi 拥堵」看信道。2.4G 上 5、6、7、8 这几个数是挤在一起的，\n");
             sb.append("   周围有 5 个以上强信号占着 6 信道，就进路由后台把 2.4G 改成 1 或 11。\n");
             sb.append("3. 手机支持 5G 就连 5G（点「📶 打开 WiFi 设置」看有没有 -5G 的名字）。\n");
             sb.append("   5G 穿墙差但没人抢，隔一堵墙通常还是比 2.4G 快。\n");
@@ -370,11 +619,11 @@ public class MainActivity extends AppCompatActivity {
             sb.append("结论：手机到路由器很干净，问题在路由器往外这一段。\n");
             sb.append("这一段你改不了，但可以拿出证据去谈。\n\n");
             sb.append("先排除自己：\n");
-            sb.append("1. 用「③ 测网速」看真实带宽。若只有几 Mbps，而房东说是 100M/200M，那就是被分掉了。\n");
-            sb.append("2. 点「④ 扫局域网设备」看有几台设备在连。十几台同时在线，带宽必然被瓜分。\n");
+            sb.append("1. 点「③ 测网速」看真实带宽。若只有几 Mbps，而房东说是 100M/200M，那就是被分掉了。\n");
+            sb.append("2. 点「④ 谁在连这个 WiFi」看有几台设备在连。十几台同时在线，带宽必然被瓜分。\n");
             sb.append("3. 高峰时段（晚 8–11 点）再测一次。白天快、晚上慢 = 整栋楼在共享一条线。\n\n");
             sb.append("跟房东讲的时候别说「网慢」，直接给这三个数：\n");
-            sb.append("晚 9 点实测下行 __ Mbps，合同/宣传是 __ Mbps；\n");
+            sb.append("晚 9 点实测下行 __ Mbps，房东说这条线是 __ Mbps；\n");
             sb.append("延迟 __ ms，丢包 __%；同一时间连着的设备 __ 台。\n");
             sb.append("（把这几项填上，比说一百句「卡」有用）\n");
         } else {
@@ -382,7 +631,7 @@ public class MainActivity extends AppCompatActivity {
             sb.append("也就是说 ping 很漂亮，但一开视频/下载就卡。\n\n");
             sb.append("1. 点「③ 测网速」确认下行。低于 8 Mbps 基本没法看高清；\n");
             sb.append("   25 Mbps 以上才算够用；低于 25 就是套餐/分流问题。\n");
-            sb.append("2. 点「④ 扫局域网设备」看是不是有人在下东西/挂机。\n");
+            sb.append("2. 点「④ 谁在连这个 WiFi」看是不是有人在下东西/挂机。\n");
             sb.append("3. 路由器如果还是老 2.4G 单频，瓶颈就在路由器本身，让房东换。\n");
         }
         sb.append("\n（体检总耗时 ").append(cost / 1000.0).append(" 秒）");
@@ -390,16 +639,30 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ============================================================
-    // ② 扫周边 WiFi —— 每个 AP 一条强度条
+    // ② 扫周边 WiFi
     // ============================================================
-    private void startScan() {
+    private void requestScan() {
         if (busyScan) { toast("正在扫，等一下"); return; }
+        if (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 7);
+            toast("请允许定位权限，扫描周边 WiFi 才能读到列表");
+            openCard(bodyScan, arrowScan, hintScan, HINT_SCAN);
+            statusScan.setText("需要定位权限");
+            return;
+        }
+        startScan();
+    }
+
+    private void startScan() {
         busyScan = true;
-        boxScan.setVisibility(View.VISIBLE);
+        openCard(bodyScan, arrowScan, hintScan, HINT_SCAN);
         pbScan.setIndeterminate(true);
         apList.removeAllViews();
+        statusScan.setText("");
         resultScan.setText("");
-        scrollTo(boxScan);
+        scrollTo(cardScan);
 
         final WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         new Thread(new Runnable() {
@@ -430,16 +693,17 @@ public class MainActivity extends AppCompatActivity {
                     ui.post(new Runnable() {
                         public void run() {
                             pbScan.setIndeterminate(false);
+                            pbScan.setMax(100);
                             pbScan.setProgress(100);
                             statusScan.setText("扫描结束，0 个");
                             resultScan.setText(rep);
+                            hintScan.setText("没扫到 AP，检查定位权限");
                         }
                     });
                     busyScan = false;
                     return;
                 }
 
-                // 统计 2.4G 各信道
                 final int[] chCount = new int[15];
                 int n24 = 0, n5 = 0;
                 for (ScanResult r : list) {
@@ -478,7 +742,6 @@ public class MainActivity extends AppCompatActivity {
                     sb.append("  信道 ").append(c).append("：").append(bar(chCount[c])).append(" ")
                             .append(chCount[c]).append(" 个\n");
                 }
-                // 找最空信道（1/6/11 里选）
                 int bestVal = 999;
                 for (int c : new int[]{1, 6, 11}) {
                     if (chCount[c] < bestVal) { bestVal = chCount[c]; best = c; }
@@ -490,6 +753,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 final String rep = sb.toString();
                 reportScan = rep;
+                final int bestCh = best;
 
                 ui.post(new Runnable() {
                     public void run() {
@@ -498,6 +762,10 @@ public class MainActivity extends AppCompatActivity {
                         pbScan.setProgress(list.size());
                         statusScan.setText("扫描完成，" + list.size() + " 个 AP");
                         resultScan.setText(rep);
+                        String sum = list.size() + " 个 AP，建议信道 " + bestCh;
+                        setSummary(hintScan, sum, HINT_SCAN);
+                        hintScan.setText(sum);
+                        saveHist("周边 WiFi", sum, rep);
                     }
                 });
                 busyScan = false;
@@ -514,8 +782,13 @@ public class MainActivity extends AppCompatActivity {
     private void addApRow(ScanResult r) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(4);
-        row.setPadding(0, pad, 0, pad);
+        row.setBackgroundResource(R.drawable.inner_white);
+        int pad = dp(10);
+        row.setPadding(pad, dp(8), pad, dp(8));
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        rp.bottomMargin = dp(6);
+        row.setLayoutParams(rp);
 
         String band = r.frequency > 4000 ? "5G" : "2.4G";
         int ch = r.frequency > 4000 ? (r.frequency - 5000) / 5 : (r.frequency - 2407) / 5;
@@ -525,24 +798,28 @@ public class MainActivity extends AppCompatActivity {
         int q = Math.max(0, Math.min(100, 2 * (r.level + 100)));
 
         TextView t = new TextView(this);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        t.setTextColor(0xFF5E3325);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
         t.setText(r.SSID == null || r.SSID.length() == 0 ? "(隐藏网络)" : r.SSID);
         row.addView(t);
 
         LinearLayout line = new LinearLayout(this);
         line.setOrientation(LinearLayout.HORIZONTAL);
         line.setGravity(Gravity.CENTER_VERTICAL);
+        line.setPadding(0, dp(5), 0, 0);
 
         ProgressBar pb = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         pb.setMax(100);
         pb.setProgress(q);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(110), dp(10));
-        lp.rightMargin = dp(8);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(120), dp(9));
+        lp.rightMargin = dp(10);
         pb.setLayoutParams(lp);
         line.addView(pb);
 
         TextView d = new TextView(this);
         d.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        d.setTextColor(0xFF9C6353);
         d.setText(r.level + " dBm  " + band + "  ch" + ch + "  " + cap);
         line.addView(d);
 
@@ -551,24 +828,24 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ============================================================
-    // ③ 测网速 —— 实时显示已下载 MB 与瞬时速度
+    // ③ 测网速
     // ============================================================
     private void startSpeed() {
         if (busySpeed) { toast("测速正在跑，等一下"); return; }
         busySpeed = true;
-        boxSpeed.setVisibility(View.VISIBLE);
+        openCard(bodySpeed, arrowSpeed, hintSpeed, HINT_SPEED);
         pbSpeed.setIndeterminate(false);
         pbSpeed.setMax(1000);
         pbSpeed.setProgress(0);
+        statusSpeed.setText("");
         resultSpeed.setText("");
-        scrollTo(boxSpeed);
+        scrollTo(cardSpeed);
 
         new Thread(new Runnable() {
             public void run() {
                 StringBuilder sb = new StringBuilder();
-                // ---------- 下行 ----------
                 ui.post(new Runnable() {
-                    public void run() { statusSpeed.setText("① 下行为主：正在下载 8 MB…"); }
+                    public void run() { statusSpeed.setText("↓ 正在下载 8 MB…"); }
                 });
                 SpeedResult down;
                 try {
@@ -593,11 +870,10 @@ public class MainActivity extends AppCompatActivity {
                 sb.append(String.format(Locale.US, "下行：%.2f Mbps（%.1f MB / %.2f 秒）\n",
                         down.mbps, down.bytes / 1e6, down.ms / 1000.0));
 
-                // ---------- 上行 ----------
                 ui.post(new Runnable() {
                     public void run() {
                         statusSpeed.setText(String.format(Locale.US,
-                                "↓ 下行 %.1f Mbps 完成，② 正在上传 3 MB…", fd.mbps));
+                                "↓ 下行 %.1f Mbps 完成，↑ 正在上传 3 MB…", fd.mbps));
                         pbSpeed.setProgress(500);
                     }
                 });
@@ -624,7 +900,6 @@ public class MainActivity extends AppCompatActivity {
                 sb.append(String.format(Locale.US, "上行：%.2f Mbps（%.1f MB / %.2f 秒）\n",
                         up.mbps, up.bytes / 1e6, up.ms / 1000.0));
 
-                // ---------- 判定 ----------
                 sb.append("\n");
                 double v = down.mbps;
                 if (!down.ok) {
@@ -633,14 +908,14 @@ public class MainActivity extends AppCompatActivity {
                     sb.append("判定：下行 ").append(f1(v)).append(" Mbps，很低。\n");
                     sb.append("看 1080p 要 5–8 Mbps，这个数基本就是「转圈」的原因。\n\n");
                     sb.append("这不是你手机的问题。按顺序查：\n");
-                    sb.append("1. 点「④ 扫局域网设备」，看有几台在同时用。十几台共享一条线必然这样。\n");
+                    sb.append("1. 点「④ 谁在连这个 WiFi」，看有几台在同时用。十几台共享一条线必然这样。\n");
                     sb.append("2. 换到路由器旁边再测一次。只差一点 = 信号不是主因，是总带宽不足。\n");
                     sb.append("3. 问房东：这条线是多少兆的、几个人分。若号称 100M 你只测到 5M，\n");
                     sb.append("   那就是被分掉了，或者路由器本身很老。\n");
                 } else if (v < 25) {
                     sb.append("判定：下行 ").append(f1(v)).append(" Mbps，勉强够用。\n");
                     sb.append("刷视频可以，多人同时看 1080p 或下大文件就卡。\n\n");
-                    sb.append("1. 点「② 扫周边 WiFi」看信道挤不挤，挤就改 1/6/11。\n");
+                    sb.append("1. 点「② 周边 WiFi 拥堵」看信道挤不挤，挤就改 1/6/11。\n");
                     sb.append("2. 手机能连 5G 就换 5G。\n");
                     sb.append("3. 晚 9 点再测，若明显更低 = 整栋共享。\n");
                 } else {
@@ -648,7 +923,7 @@ public class MainActivity extends AppCompatActivity {
                     sb.append("那么卡就不是带宽，而是：\n");
                     sb.append("· 延迟/丢包 → 回到「① 一键体检」看两段数据\n");
                     sb.append("· DNS 慢 → 点「⚡ 换私有 DNS」\n");
-                    sb.append("· 有人在下东西 → 点「④ 扫局域网设备」\n");
+                    sb.append("· 有人在下东西 → 点「④ 谁在连这个 WiFi」\n");
                 }
                 if (up.ok && up.mbps < 1.0) {
                     sb.append("\n上行只有 ").append(f1(up.mbps))
@@ -659,12 +934,16 @@ public class MainActivity extends AppCompatActivity {
 
                 final String rep = sb.toString();
                 reportSpeed = rep;
+                final String sum = String.format(Locale.US, "↓ %.1f / ↑ %.1f Mbps",
+                        down.mbps, up.mbps);
                 ui.post(new Runnable() {
                     public void run() {
                         pbSpeed.setProgress(1000);
-                        statusSpeed.setText(String.format(Locale.US, "完成：↓ %.1f Mbps   ↑ %.1f Mbps",
-                                fd.mbps, fu.mbps));
+                        statusSpeed.setText("完成：" + sum);
                         resultSpeed.setText(rep);
+                        setSummary(hintSpeed, sum, HINT_SPEED);
+                        hintSpeed.setText(sum);
+                        saveHist("测网速", sum, rep);
                     }
                 });
                 busySpeed = false;
@@ -716,7 +995,7 @@ public class MainActivity extends AppCompatActivity {
         c.setConnectTimeout(8000);
         c.setReadTimeout(20000);
         c.setRequestProperty("Cache-Control", "no-cache");
-        c.setRequestProperty("User-Agent", "WifiCheck/1.3");
+        c.setRequestProperty("User-Agent", "WifiCheck/1.4");
         c.connect();
         int code = c.getResponseCode();
         if (code / 100 != 2) throw new Exception("HTTP " + code);
@@ -760,7 +1039,7 @@ public class MainActivity extends AppCompatActivity {
         c.setRequestMethod("POST");
         c.setFixedLengthStreamingMode(TOTAL);
         c.setRequestProperty("Content-Type", "application/octet-stream");
-        c.setRequestProperty("User-Agent", "WifiCheck/1.3");
+        c.setRequestProperty("User-Agent", "WifiCheck/1.4");
         c.connect();
         OutputStream out = c.getOutputStream();
         byte[] buf = new byte[32768];
@@ -791,7 +1070,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ============================================================
-    // ④ 扫局域网设备 —— TTL + 端口 + 主机名 + 标题 交叉判型
+    // ④ 扫局域网设备
     // ============================================================
     private void startDevScan() {
         if (busyDev) { toast("正在扫，等一下"); return; }
@@ -799,15 +1078,18 @@ public class MainActivity extends AppCompatActivity {
         final String base = subnetBase(gw.length() > 0 ? gw : myIp);
         if (base == null) {
             toast("读不到本机网段，先连上 WiFi");
+            openCard(bodyDev, arrowDev, hintDev, HINT_DEV);
+            statusDev.setText("没连上 WiFi，读不到网段");
             return;
         }
         busyDev = true;
-        boxDev.setVisibility(View.VISIBLE);
+        openCard(bodyDev, arrowDev, hintDev, HINT_DEV);
         pbDev.setIndeterminate(false);
         pbDev.setMax(254);
         pbDev.setProgress(0);
         devList.removeAllViews();
-        scrollTo(boxDev);
+        statusDev.setText("");
+        scrollTo(cardDev);
 
         final String gwFinal = gw;
         new Thread(new Runnable() {
@@ -816,7 +1098,6 @@ public class MainActivity extends AppCompatActivity {
                     public void run() { statusDev.setText("第 1 步：扫描 " + base + ".1–254 存活主机…"); }
                 });
 
-                // ---------- 存活探测 ----------
                 ExecutorService pool = Executors.newFixedThreadPool(40);
                 List<Future<String>> fs = new ArrayList<>();
                 for (int i = 1; i <= 254; i++) {
@@ -843,7 +1124,6 @@ public class MainActivity extends AppCompatActivity {
                         if (v != null) alive.add(v);
                     } catch (Exception ignored) { }
                 }
-                // ARP 表补充（有些设备不响应 ping）
                 Map<String, String> arp = readArp();
                 for (String ip : arp.keySet()) {
                     if (ip.startsWith(base + ".")) alive.add(ip);
@@ -857,7 +1137,6 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
 
-                // ---------- 逐台识别，边识别边出结果 ----------
                 List<String> ips = new ArrayList<>(alive);
                 Collections.sort(ips, new Comparator<String>() {
                     public int compare(String a, String b) { return Integer.compare(ipInt(a), ipInt(b)); }
@@ -887,7 +1166,6 @@ public class MainActivity extends AppCompatActivity {
                 }
                 pool2.shutdownNow();
 
-                // ---------- 汇总 ----------
                 List<Dev> all = new ArrayList<>(found);
                 Collections.sort(all, new Comparator<Dev>() {
                     public int compare(Dev a, Dev b) {
@@ -926,11 +1204,15 @@ public class MainActivity extends AppCompatActivity {
                 sb.append("   这是系统限制，不是没扫到。路由器后台能看到完整 MAC。\n");
                 final String rep = sb.toString();
                 reportDev = rep;
+                final String sum = all.size() + " 台在线";
 
                 ui.post(new Runnable() {
                     public void run() {
                         statusDev.setText("扫描完成，" + all.size() + " 台在线");
                         pbDev.setProgress(254);
+                        setSummary(hintDev, sum, HINT_DEV);
+                        hintDev.setText(sum);
+                        saveHist("局域网设备", sum, rep);
                     }
                 });
                 busyDev = false;
@@ -951,16 +1233,12 @@ public class MainActivity extends AppCompatActivity {
         d.isGw = isGw;
         d.isMe = isMe;
 
-        // 1) TTL
         d.ttl = pingTtl(ip);
-        // 2) 主机名
         d.host = resolveHost(ip);
-        // 3) MAC 厂商
         if (mac != null && mac.length() >= 8) {
             String key = mac.replace(":", "").replace("-", "").toUpperCase(Locale.US);
             if (key.length() >= 6) d.vendor = OUI.get(key.substring(0, 6));
         }
-        // 4) 端口
         Set<Integer> open = probePorts(ip);
         StringBuilder ps = new StringBuilder();
         for (Integer p : open) {
@@ -968,7 +1246,6 @@ public class MainActivity extends AppCompatActivity {
             ps.append(p);
         }
         d.ports = ps.toString();
-        // 5) HTTP 标题（型号最靠谱的来源）
         if (open.contains(80)) d.model = httpTitle(ip, 80);
         else if (open.contains(8080)) d.model = httpTitle(ip, 8080);
         else if (open.contains(443)) d.model = httpTitle(ip, 443);
@@ -985,7 +1262,6 @@ public class MainActivity extends AppCompatActivity {
         if (d.isGw) return "📡 路由器 / 光猫";
         if (d.isMe) return "📱 本机（这台手机）";
 
-        // 端口强信号
         if (open.contains(9100) || open.contains(631) || open.contains(515))
             return "🖨 打印机";
         if (open.contains(62078))
@@ -994,10 +1270,9 @@ public class MainActivity extends AppCompatActivity {
             return "💻 Windows 电脑";
         if (open.contains(554) || open.contains(8009) || open.contains(7000) || open.contains(5000))
             return "📺 电视 / 盒子 / 摄像头";
-        if (open.contains(22) || open.contains(443) && open.contains(22))
+        if (open.contains(22))
             return "💾 NAS / 服务器";
 
-        // 主机名线索
         String[] pcKeys = {"pc", "desktop", "laptop", "thinkpad", "macbook", "windows", "win-", "pc-", "computer"};
         String[] phoneKeys = {"phone", "iphone", "ipad", "android", "redmi", "mi-", "huawei", "honor", "oppo", "vivo", "galaxy", "pixel", "oneplus", "realme", "meizu"};
         String[] tvKeys = {"tv", "box", "mi-box", "appletv", "firetv", "chromecast", "投影"};
@@ -1006,16 +1281,16 @@ public class MainActivity extends AppCompatActivity {
         for (String k : printKeys) if (h.contains(k) || m.contains(k)) return "🖨 打印机";
         for (String k : tvKeys) if (h.contains(k) || m.contains(k)) return "📺 电视 / 盒子";
         for (String k : pcKeys) if (h.contains(k) || m.contains(k)) return "💻 电脑";
-        for (String k : phoneKeys) if (h.contains(k) || m.contains(k)) return (h.contains("iphone") || h.contains("ipad")) ? "📱 iPhone / iPad" : "📱 手机";
+        for (String k : phoneKeys)
+            if (h.contains(k) || m.contains(k))
+                return (h.contains("iphone") || h.contains("ipad")) ? "📱 iPhone / iPad" : "📱 手机";
 
-        // TTL 兜底（很准）
         if (d.ttl == 128) return "💻 电脑（Windows）";
         if (d.ttl == 64) return "📱 手机 / 平板（Android/iOS）";
         if (d.ttl == 255) return "📡 网络设备";
         if (d.ttl > 0 && d.ttl <= 64) return "📱 手机 / 平板";
         if (d.ttl > 64 && d.ttl <= 128) return "💻 电脑";
 
-        // 厂商兜底
         String[] phoneBrand = {"小米", "华为", "苹果", "三星", "OPPO", "vivo", "魅族", "一加", "Google"};
         for (String b : phoneBrand) if (v.equals(b)) return "📱 手机 / 平板（" + v + "）";
 
@@ -1025,17 +1300,18 @@ public class MainActivity extends AppCompatActivity {
     private void addDevRow(Dev d) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundColor(Color.parseColor("#0F000000"));
-        int p = dp(8);
-        card.setPadding(p, p, p, p);
+        card.setBackgroundResource(R.drawable.inner_white);
+        int p = dp(12);
+        card.setPadding(p, dp(9), p, dp(9));
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        cp.bottomMargin = dp(6);
+        cp.bottomMargin = dp(7);
         card.setLayoutParams(cp);
 
         TextView t1 = new TextView(this);
         t1.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         t1.setTypeface(Typeface.DEFAULT_BOLD);
+        t1.setTextColor(0xFF6B4E12);
         String head = d.type + "   " + d.ip;
         if (d.isGw) head += "   [网关]";
         if (d.isMe) head += "   [本机]";
@@ -1051,23 +1327,31 @@ public class MainActivity extends AppCompatActivity {
         if (sb.length() > 0) {
             TextView t2 = new TextView(this);
             t2.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            t2.setTextColor(0xFF8F6E2A);
+            t2.setPadding(0, dp(4), 0, 0);
             t2.setText(sb.toString());
             card.addView(t2);
         }
         if (d.model != null && d.model.length() > 0) {
             TextView t3 = new TextView(this);
             t3.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            t3.setTextColor(0xFF8F6E2A);
+            t3.setPadding(0, dp(4), 0, 0);
             t3.setText("型号/页面标题：" + d.model);
             card.addView(t3);
         }
         if (d.ports != null && d.ports.length() > 0) {
             TextView t4 = new TextView(this);
             t4.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            t4.setTextColor(0xFF8F6E2A);
+            t4.setPadding(0, dp(4), 0, 0);
             t4.setText("开放端口 " + d.ports);
             card.addView(t4);
         }
         TextView t5 = new TextView(this);
         t5.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        t5.setTextColor(0xFFA09070);
+        t5.setPadding(0, dp(4), 0, 0);
         t5.setText("MAC " + (d.mac == null || d.mac.length() < 8 ? "读不到（Android 10+ 系统限制）" : d.mac)
                 + (d.ttl > 0 ? "   TTL " + d.ttl : ""));
         card.addView(t5);
@@ -1209,7 +1493,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             br = new BufferedReader(new InputStreamReader(
                     new java.io.FileInputStream("/proc/net/arp")));
-            String line = br.readLine(); // 表头
+            String line = br.readLine();
             while ((line = br.readLine()) != null) {
                 String[] p = line.split("\\s+");
                 if (p.length >= 4) {
@@ -1275,7 +1559,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (!parsed || s.recv == 0) {
-            // 回退：isReachable 逐个试
             int got = 0;
             double sum = 0;
             double mn = -1, mx = 0;
@@ -1313,8 +1596,7 @@ public class MainActivity extends AppCompatActivity {
             if (wi == null) return null;
             WifiBrief b = new WifiBrief();
             b.rssi = wi.getRssi();
-            int speed = wi.getLinkSpeed();
-            b.linkMbps = speed;
+            b.linkMbps = wi.getLinkSpeed();
             if (Build.VERSION.SDK_INT >= 21) {
                 int f = wi.getFrequency();
                 b.band = f > 4000 ? "5G(" + f + "MHz)" : (f > 0 ? "2.4G(" + f + "MHz)" : "?");

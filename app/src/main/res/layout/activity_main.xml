@@ -3,243 +3,755 @@
     android:id="@+id/scroll"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:background="@drawable/bg_page"
+    android:fillViewport="true"
+    android:scrollbars="none">
 
     <LinearLayout
         android:orientation="vertical"
-        android:padding="12dp"
+        android:paddingLeft="14dp"
+        android:paddingRight="14dp"
+        android:paddingTop="18dp"
+        android:paddingBottom="28dp"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
+        <!-- ================= 标题 ================= -->
         <TextView
             android:text="出租屋 WiFi 体检"
-            android:textSize="18sp"
+            android:textSize="22sp"
             android:textStyle="bold"
-            android:paddingBottom="4dp"
+            android:textColor="#4A4453"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
         <TextView
-            android:text="点哪一项，结果就出在那一项下面。\n口诀：满格慢=带宽问题；少格慢=信号问题"
+            android:id="@+id/tvSub"
+            android:text="点开哪一项就测哪一项，结果留在卡片里，随时收起"
             android:textSize="12sp"
-            android:paddingBottom="12dp"
+            android:textColor="#8A8296"
+            android:paddingTop="4dp"
+            android:paddingBottom="16dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
         <!-- ================= ① 一键体检 ================= -->
-        <Button
-            android:id="@+id/check"
-            android:text="① 一键体检（分信号 / 带宽）"
-            android:textStyle="bold"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
-
         <LinearLayout
-            android:id="@+id/boxCheck"
+            android:id="@+id/cardCheck"
             android:orientation="vertical"
-            android:visibility="gone"
-            android:background="#12000000"
-            android:padding="10dp"
+            android:background="@drawable/card_mint"
+            android:padding="16dp"
             android:layout_marginBottom="12dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
-            <ProgressBar
-                android:id="@+id/pbCheck"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:indeterminate="true"
+            <LinearLayout
+                android:id="@+id/headCheck"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content">
 
-            <TextView
-                android:id="@+id/statusCheck"
-                android:textSize="12sp"
-                android:paddingTop="6dp"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                <TextView
+                    android:text="①"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    android:textColor="#35B98C"
+                    android:paddingRight="10dp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
 
-            <TextView
-                android:id="@+id/resultCheck"
-                android:textSize="13sp"
-                android:paddingTop="8dp"
+                <LinearLayout
+                    android:orientation="vertical"
+                    android:layout_weight="1"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content">
+
+                    <TextView
+                        android:text="一键体检"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="#2A5C4A"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+
+                    <TextView
+                        android:id="@+id/hintCheck"
+                        android:text="分两段 ping，看是哪一段慢"
+                        android:textSize="11sp"
+                        android:textColor="#5E8B79"
+                        android:paddingTop="2dp"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/arrowCheck"
+                    android:text="▾"
+                    android:textSize="16sp"
+                    android:textColor="#35B98C"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/bodyCheck"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:paddingTop="12dp"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content">
+
+                <ProgressBar
+                    android:id="@+id/pbCheck"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:indeterminate="false"
+                    android:max="16"
+                    android:progressTint="#35B98C"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView
+                    android:id="@+id/statusCheck"
+                    android:textSize="12sp"
+                    android:textColor="#2A5C4A"
+                    android:paddingTop="8dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView
+                    android:id="@+id/resultCheck"
+                    android:textSize="13sp"
+                    android:textColor="#2E4A40"
+                    android:lineSpacingExtra="3dp"
+                    android:paddingTop="10dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <LinearLayout
+                    android:orientation="horizontal"
+                    android:paddingTop="10dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <Button
+                        android:id="@+id/againCheck"
+                        android:text="重新测"
+                        android:textSize="12sp"
+                        android:textColor="#2A5C4A"
+                        android:background="@drawable/inner_white"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="16dp"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp" />
+
+                    <Button
+                        android:id="@+id/foldCheck"
+                        android:text="收起"
+                        android:textSize="12sp"
+                        android:textColor="#2A5C4A"
+                        android:background="@drawable/inner_white"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="16dp"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:layout_marginLeft="8dp"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp" />
+                </LinearLayout>
+            </LinearLayout>
         </LinearLayout>
 
         <!-- ================= ② 扫周边 WiFi ================= -->
-        <Button
-            android:id="@+id/scan"
-            android:text="② 扫周边 WiFi（看信道拥堵）"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
-
         <LinearLayout
-            android:id="@+id/boxScan"
+            android:id="@+id/cardScan"
             android:orientation="vertical"
-            android:visibility="gone"
-            android:background="#12000000"
-            android:padding="10dp"
+            android:background="@drawable/card_peach"
+            android:padding="16dp"
             android:layout_marginBottom="12dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
-            <ProgressBar
-                android:id="@+id/pbScan"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:indeterminate="true"
+            <LinearLayout
+                android:id="@+id/headScan"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content">
 
-            <TextView
-                android:id="@+id/statusScan"
-                android:textSize="12sp"
-                android:paddingTop="6dp"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                <TextView
+                    android:text="②"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    android:textColor="#FF8A6B"
+                    android:paddingRight="10dp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
 
-            <TextView
-                android:id="@+id/resultScan"
-                android:textSize="13sp"
-                android:paddingTop="8dp"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                <LinearLayout
+                    android:orientation="vertical"
+                    android:layout_weight="1"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content">
+
+                    <TextView
+                        android:text="周边 WiFi 拥堵"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="#7A3B29"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+
+                    <TextView
+                        android:id="@+id/hintScan"
+                        android:text="看 2.4G 该改成哪个信道"
+                        android:textSize="11sp"
+                        android:textColor="#9C6353"
+                        android:paddingTop="2dp"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/arrowScan"
+                    android:text="▾"
+                    android:textSize="16sp"
+                    android:textColor="#FF8A6B"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
 
             <LinearLayout
-                android:id="@+id/apList"
+                android:id="@+id/bodyScan"
                 android:orientation="vertical"
-                android:paddingTop="6dp"
+                android:visibility="gone"
+                android:paddingTop="12dp"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content">
+
+                <ProgressBar
+                    android:id="@+id/pbScan"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:indeterminate="true"
+                    android:progressTint="#FF8A6B"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView
+                    android:id="@+id/statusScan"
+                    android:textSize="12sp"
+                    android:textColor="#7A3B29"
+                    android:paddingTop="8dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView
+                    android:id="@+id/resultScan"
+                    android:textSize="13sp"
+                    android:textColor="#5E3325"
+                    android:lineSpacingExtra="3dp"
+                    android:paddingTop="10dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <LinearLayout
+                    android:id="@+id/apList"
+                    android:orientation="vertical"
+                    android:paddingTop="8dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <LinearLayout
+                    android:orientation="horizontal"
+                    android:paddingTop="10dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <Button
+                        android:id="@+id/againScan"
+                        android:text="重新扫"
+                        android:textSize="12sp"
+                        android:textColor="#7A3B29"
+                        android:background="@drawable/inner_white"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="16dp"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp" />
+
+                    <Button
+                        android:id="@+id/foldScan"
+                        android:text="收起"
+                        android:textSize="12sp"
+                        android:textColor="#7A3B29"
+                        android:background="@drawable/inner_white"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="16dp"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:layout_marginLeft="8dp"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp" />
+                </LinearLayout>
+            </LinearLayout>
         </LinearLayout>
 
         <!-- ================= ③ 测网速 ================= -->
-        <Button
-            android:id="@+id/btnSpeed"
-            android:text="③ 测网速（上下行 Mbps）"
-            android:textStyle="bold"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
-
         <LinearLayout
-            android:id="@+id/boxSpeed"
+            android:id="@+id/cardSpeed"
             android:orientation="vertical"
-            android:visibility="gone"
-            android:background="#12000000"
-            android:padding="10dp"
+            android:background="@drawable/card_lavender"
+            android:padding="16dp"
             android:layout_marginBottom="12dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
-            <ProgressBar
-                android:id="@+id/pbSpeed"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:indeterminate="false"
-                android:max="100"
+            <LinearLayout
+                android:id="@+id/headSpeed"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content">
 
-            <TextView
-                android:id="@+id/statusSpeed"
-                android:textSize="13sp"
-                android:textStyle="bold"
-                android:paddingTop="8dp"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                <TextView
+                    android:text="③"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    android:textColor="#7B61FF"
+                    android:paddingRight="10dp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
 
-            <TextView
-                android:id="@+id/resultSpeed"
-                android:textSize="13sp"
-                android:paddingTop="8dp"
+                <LinearLayout
+                    android:orientation="vertical"
+                    android:layout_weight="1"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content">
+
+                    <TextView
+                        android:text="测网速"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="#3D2A7A"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+
+                    <TextView
+                        android:id="@+id/hintSpeed"
+                        android:text="上下行 Mbps，边下边看数"
+                        android:textSize="11sp"
+                        android:textColor="#6B5A9E"
+                        android:paddingTop="2dp"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/arrowSpeed"
+                    android:text="▾"
+                    android:textSize="16sp"
+                    android:textColor="#7B61FF"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/bodySpeed"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:paddingTop="12dp"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content">
+
+                <ProgressBar
+                    android:id="@+id/pbSpeed"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:indeterminate="false"
+                    android:max="1000"
+                    android:progressTint="#7B61FF"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView
+                    android:id="@+id/statusSpeed"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#3D2A7A"
+                    android:paddingTop="10dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView
+                    android:id="@+id/resultSpeed"
+                    android:textSize="13sp"
+                    android:textColor="#38295C"
+                    android:lineSpacingExtra="3dp"
+                    android:paddingTop="10dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <LinearLayout
+                    android:orientation="horizontal"
+                    android:paddingTop="10dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <Button
+                        android:id="@+id/againSpeed"
+                        android:text="重新测"
+                        android:textSize="12sp"
+                        android:textColor="#3D2A7A"
+                        android:background="@drawable/inner_white"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="16dp"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp" />
+
+                    <Button
+                        android:id="@+id/foldSpeed"
+                        android:text="收起"
+                        android:textSize="12sp"
+                        android:textColor="#3D2A7A"
+                        android:background="@drawable/inner_white"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="16dp"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:layout_marginLeft="8dp"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp" />
+                </LinearLayout>
+            </LinearLayout>
         </LinearLayout>
 
         <!-- ================= ④ 扫局域网设备 ================= -->
-        <Button
-            android:id="@+id/btnDevScan"
-            android:text="④ 扫局域网设备（谁在连 / 什么设备）"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
-
         <LinearLayout
-            android:id="@+id/boxDev"
+            android:id="@+id/cardDev"
             android:orientation="vertical"
-            android:visibility="gone"
-            android:background="#12000000"
-            android:padding="10dp"
+            android:background="@drawable/card_lemon"
+            android:padding="16dp"
             android:layout_marginBottom="12dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
-            <ProgressBar
-                android:id="@+id/pbDev"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:indeterminate="true"
+            <LinearLayout
+                android:id="@+id/headDev"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <TextView
+                    android:text="④"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    android:textColor="#E0A82E"
+                    android:paddingRight="10dp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+
+                <LinearLayout
+                    android:orientation="vertical"
+                    android:layout_weight="1"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content">
+
+                    <TextView
+                        android:text="谁在连这个 WiFi"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="#6B4E12"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+
+                    <TextView
+                        android:id="@+id/hintDev"
+                        android:text="设备类型、品牌、型号"
+                        android:textSize="11sp"
+                        android:textColor="#8F6E2A"
+                        android:paddingTop="2dp"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/arrowDev"
+                    android:text="▾"
+                    android:textSize="16sp"
+                    android:textColor="#E0A82E"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/bodyDev"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:paddingTop="12dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <ProgressBar
+                    android:id="@+id/pbDev"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:indeterminate="false"
+                    android:max="254"
+                    android:progressTint="#E0A82E"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView
+                    android:id="@+id/statusDev"
+                    android:textSize="12sp"
+                    android:textColor="#6B4E12"
+                    android:paddingTop="8dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <LinearLayout
+                    android:id="@+id/devList"
+                    android:orientation="vertical"
+                    android:paddingTop="8dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <LinearLayout
+                    android:orientation="horizontal"
+                    android:paddingTop="10dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <Button
+                        android:id="@+id/againDev"
+                        android:text="重新扫"
+                        android:textSize="12sp"
+                        android:textColor="#6B4E12"
+                        android:background="@drawable/inner_white"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="16dp"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp" />
+
+                    <Button
+                        android:id="@+id/foldDev"
+                        android:text="收起"
+                        android:textSize="12sp"
+                        android:textColor="#6B4E12"
+                        android:background="@drawable/inner_white"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="16dp"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:layout_marginLeft="8dp"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ================= 历史记录 ================= -->
+        <LinearLayout
+            android:id="@+id/cardHist"
+            android:orientation="vertical"
+            android:background="@drawable/inner_white"
+            android:padding="16dp"
+            android:layout_marginBottom="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout
+                android:id="@+id/headHist"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <TextView
+                    android:text="🕘"
+                    android:textSize="17sp"
+                    android:paddingRight="9dp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+
+                <LinearLayout
+                    android:orientation="vertical"
+                    android:layout_weight="1"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content">
+
+                    <TextView
+                        android:text="检测记录"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:textColor="#4A4453"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+
+                    <TextView
+                        android:id="@+id/hintHist"
+                        android:text="点一条看当时的完整结果"
+                        android:textSize="11sp"
+                        android:textColor="#8A8296"
+                        android:paddingTop="2dp"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/arrowHist"
+                    android:text="▾"
+                    android:textSize="16sp"
+                    android:textColor="#8A8296"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/bodyHist"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:paddingTop="10dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:id="@+id/histList"
+                    android:orientation="vertical"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView
+                    android:id="@+id/tvHistEmpty"
+                    android:text="还没有记录。上面四项任意测一次，就会自动存一条。"
+                    android:textSize="12sp"
+                    android:textColor="#8A8296"
+                    android:paddingTop="8dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <Button
+                    android:id="@+id/btnHistClear"
+                    android:text="清空记录"
+                    android:textSize="12sp"
+                    android:textColor="#8A8296"
+                    android:background="@drawable/inner_white"
+                    android:paddingLeft="16dp"
+                    android:paddingRight="16dp"
+                    android:minHeight="0dp"
+                    android:minWidth="0dp"
+                    android:layout_marginTop="10dp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ================= 动手改 ================= -->
+        <LinearLayout
+            android:orientation="vertical"
+            android:background="@drawable/inner_white"
+            android:padding="16dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <TextView
+                android:text="可以直接动手改"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#4A4453"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
             <TextView
-                android:id="@+id/statusDev"
-                android:textSize="12sp"
-                android:paddingTop="6dp"
+                android:id="@+id/tvTip"
+                android:text=""
+                android:textSize="11sp"
+                android:textColor="#8A8296"
+                android:paddingTop="4dp"
+                android:paddingBottom="10dp"
+                android:lineSpacingExtra="2dp"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
-            <LinearLayout
-                android:id="@+id/devList"
-                android:orientation="vertical"
-                android:paddingTop="6dp"
+            <Button
+                android:id="@+id/btnRouter"
+                android:text="🔧 打开路由器后台（改信道 / 踢设备）"
+                android:textSize="13sp"
+                android:textColor="#4A4453"
+                android:background="@drawable/card_mint"
+                android:paddingLeft="16dp"
+                android:paddingRight="16dp"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:gravity="left|center_vertical"
+                android:layout_marginBottom="8dp"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="46dp" />
+
+            <Button
+                android:id="@+id/btnDns"
+                android:text="⚡ 换私有 DNS（治网页转圈）"
+                android:textSize="13sp"
+                android:textColor="#4A4453"
+                android:background="@drawable/card_lavender"
+                android:paddingLeft="16dp"
+                android:paddingRight="16dp"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:gravity="left|center_vertical"
+                android:layout_marginBottom="8dp"
+                android:layout_width="match_parent"
+                android:layout_height="46dp" />
+
+            <Button
+                android:id="@+id/btnCopy"
+                android:text="📋 复制全部报告"
+                android:textSize="13sp"
+                android:textColor="#4A4453"
+                android:background="@drawable/card_peach"
+                android:paddingLeft="16dp"
+                android:paddingRight="16dp"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:gravity="left|center_vertical"
+                android:layout_marginBottom="8dp"
+                android:layout_width="match_parent"
+                android:layout_height="46dp" />
+
+            <Button
+                android:id="@+id/btnWifiSet"
+                android:text="📶 打开 WiFi 设置（换 5G 频段）"
+                android:textSize="13sp"
+                android:textColor="#4A4453"
+                android:background="@drawable/card_lemon"
+                android:paddingLeft="16dp"
+                android:paddingRight="16dp"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:gravity="left|center_vertical"
+                android:layout_marginBottom="8dp"
+                android:layout_width="match_parent"
+                android:layout_height="46dp" />
+
+            <Button
+                android:id="@+id/btnBattery"
+                android:text="🔋 关掉电池限制（防 WiFi 休眠）"
+                android:textSize="13sp"
+                android:textColor="#4A4453"
+                android:background="@drawable/inner_white"
+                android:paddingLeft="16dp"
+                android:paddingRight="16dp"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:gravity="left|center_vertical"
+                android:layout_width="match_parent"
+                android:layout_height="46dp" />
         </LinearLayout>
-
-        <!-- ================= 可直接动手改 ================= -->
-        <TextView
-            android:text="可以直接动手改："
-            android:paddingTop="8dp"
-            android:paddingBottom="6dp"
-            android:textSize="13sp"
-            android:textStyle="bold"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
-
-        <Button
-            android:id="@+id/btnRouter"
-            android:text="🔧 打开路由器后台（改信道 / 踢设备）"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
-
-        <Button
-            android:id="@+id/btnDns"
-            android:text="⚡ 换私有 DNS（治「网页转圈圈」）"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
-
-        <Button
-            android:id="@+id/btnCopy"
-            android:text="📋 复制最近一份报告"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
-
-        <Button
-            android:id="@+id/btnWifiSet"
-            android:text="📶 打开 WiFi 设置（换 5G 频段）"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
-
-        <Button
-            android:id="@+id/btnBattery"
-            android:text="🔋 关掉电池限制（防 Wi-Fi 被休眠）"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
-
-        <TextView
-            android:id="@+id/tvTip"
-            android:text="提示：路由器后台地址就是体检里显示的第一跳 IP，密码多半在路由器背面。"
-            android:paddingTop="8dp"
-            android:paddingBottom="16dp"
-            android:textSize="12sp"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
     </LinearLayout>
 </ScrollView>
