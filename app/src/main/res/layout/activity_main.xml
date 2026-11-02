@@ -19,7 +19,7 @@
 
         <TextView
             android:id="@+id/verdict"
-            android:text="点「一键体检」：测你到路由器(第一跳)、到外网，分清是信号问题还是带宽问题。\n\n「扫描周边 WiFi」：看邻居都占了哪个信道。"
+            android:text="① 一键体检：测你到路由器(第一跳)、到外网，分清信号问题还是带宽问题。\n② 扫周边 WiFi：看邻居占了哪个信道。\n③ 测网速：量上下行到底多少 Mbps（一个 App 搞定，不用再开网页）。\n④ 扫局域网设备：看有几台设备连着，哪台陌生。"
             android:padding="12dp"
             android:textSize="13sp"
             android:layout_width="match_parent"
@@ -31,8 +31,21 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
+        <Button
+            android:id="@+id/btnSpeed"
+            android:text="③ 测网速（上下行 Mbps）"
+            android:textStyle="bold"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <Button
+            android:id="@+id/btnDevScan"
+            android:text="④ 扫局域网设备（看谁在蹭网）"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
         <TextView
-            android:text="下面四个能直接动手改："
+            android:text="下面五个能直接动手改："
             android:paddingTop="14dp"
             android:paddingBottom="6dp"
             android:textSize="13sp"

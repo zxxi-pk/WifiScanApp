@@ -31,13 +31,27 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.InetAddress;
+import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -46,13 +60,42 @@ public class MainActivity extends AppCompatActivity {
     private WifiManager wifiManager;
     private ListView listView;
     private TextView tvVerdict;
-    private Button btnScan, btnCheck, btnRouter, btnCopy, btnWifiSet, btnBattery, btnDns;
+    private Button btnScan, btnCheck, btnRouter, btnCopy, btnWifiSet, btnBattery, btnDns, btnSpeed, btnDevScan;
     private final List<String> rows = new ArrayList<>();
     private ArrayAdapter<String> adapter;
 
     private String gatewayIp = "192.168.1.1";
     private String lastAdvice = "";
     private volatile boolean checking = false;
+    private volatile boolean scanningDevices = false;
+
+    // ===== 厂商 OUI 表（常见家用设备，够认出陌生设备）=====
+    private static final Map<String, String> OUI = new HashMap<>();
+    private static void putOui(String hex, String name) {
+        OUI.put(hex.toUpperCase().replace(":", "").replace("-", ""), name);
+    }
+    static {
+        putOui("001D0F", "TP-Link"); putOui("14CC20", "TP-Link"); putOui("A42BB0", "TP-Link");
+        putOui("50642B", "TP-Link"); putOui("3C46D8", "TP-Link"); putOui("F4F26D", "TP-Link");
+        putOui("04CF8C", "小米"); putOui("286C07", "小米"); putOui("64CC2E", "小米");
+        putOui("7811DC", "小米"); putOui("8CBEBE", "小米"); putOui("009E11", "小米");
+        putOui("00E0FC", "华为"); putOui("283CE4", "华为"); putOui("4846FB", "华为");
+        putOui("70723C", "华为"); putOui("9C28EF", "华为"); putOui("F4C714", "华为");
+        putOui("28CFE9", "苹果"); putOui("8C8590", "苹果"); putOui("001B63", "苹果");
+        putOui("3C0754", "苹果"); putOui("A483E7", "苹果"); putOui("F0DBF8", "苹果");
+        putOui("002637", "三星"); putOui("3423BA", "三星"); putOui("5C0A5B", "三星");
+        putOui("8C7712", "三星"); putOui("E8508B", "三星"); putOui("C0BDD1", "三星");
+        putOui("001A11", "Google"); putOui("3C5AB4", "Google"); putOui("F4F5D8", "Google");
+        putOui("B827EB", "树莓派"); putOui("DCA632", "树莓派"); putOui("E45F01", "树莓派");
+        putOui("F09FC2", "Ubiquiti"); putOui("788A20", "Ubiquiti"); putOui("0418D6", "Ubiquiti");
+        putOui("001132", "群晖"); putOui("001B21", "Intel"); putOui("001E67", "Intel");
+        putOui("3C970E", "Intel"); putOui("A4BB6D", "Intel"); putOui("00E04C", "Realtek");
+        putOui("000C29", "VMware"); putOui("005056", "VMware"); putOui("00155D", "微软");
+        putOui("F4F26D", "TP-Link"); putOui("C46E1F", "TP-Link"); putOui("B0BE76", "TP-Link");
+        putOui("24A43C", "华硕"); putOui("1C872C", "华硕"); putOui("2C56DC", "华硕");
+        putOui("001122", "Tenda"); putOui("C83A35", "Tenda"); putOui("D8320E", "Tenda");
+        putOui("00A0C9", "Intel"); putOui("00E0B8", "TP-Link");
+    }
 
     private final BroadcastReceiver scanReceiver = new BroadcastReceiver() {
         @Override
@@ -77,6 +120,8 @@ public class MainActivity extends AppCompatActivity {
         btnWifiSet = findViewById(R.id.btnWifiSet);
         btnBattery = findViewById(R.id.btnBattery);
         btnDns = findViewById(R.id.btnDns);
+        btnSpeed = findViewById(R.id.btnSpeed);
+        btnDevScan = findViewById(R.id.btnDevScan);
 
         tvVerdict.setMovementMethod(new ScrollingMovementMethod());
         adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, rows);
@@ -84,6 +129,8 @@ public class MainActivity extends AppCompatActivity {
 
         btnScan.setOnClickListener(v -> startScan());
         btnCheck.setOnClickListener(v -> runCheck());
+        btnSpeed.setOnClickListener(v -> runSpeedTest());
+        btnDevScan.setOnClickListener(v -> runDeviceScan());
 
         btnRouter.setOnClickListener(v -> openRouter());
         btnCopy.setOnClickListener(v -> copyAdvice());
@@ -208,6 +255,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private static String f(double v) { return String.format("%.1f", v); }
+    private static String fMB(long bytes) { return String.format("%.1f MB", bytes / 1048576.0); }
 
     private static String joinList(List<String> list) {
         StringBuilder b = new StringBuilder();
@@ -271,8 +319,8 @@ public class MainActivity extends AppCompatActivity {
                     + "或者晚上被同住的人占满了。这一层你手机改不了，只能谈或自己接流量。";
             action = "✅ 你能直接做的：\n"
                     + "1. 换私有 DNS（点下面按钮），排掉 DNS 慢导致的「假卡」\n"
-                    + "2. 避开晚上 8–11 点高峰期测一次对比\n"
-                    + "3. 报告发给房东/运营商，让他查套餐带宽与被限速";
+                    + "2. 避开晚上 8–11 点高峰期再测一次对比\n"
+                    + "3. 点「测网速」量上下行 Mbps，把报告发给房东/运营商";
             advice = "WiFi 体检报告\n"
                     + "第一跳正常，但出网延迟 " + f(pAvg) + "ms、丢包 " + f(pLoss)
                     + "%、抖动 " + f(pJit) + "ms\n"
@@ -282,11 +330,12 @@ public class MainActivity extends AppCompatActivity {
         } else {
             verdict = "链路健康：延迟和丢包都正常\n"
                     + "说明不是信号也不是干扰，卡只可能是【带宽不够】。"
-                    + "去网页版测一下下行到底有多少 Mbps，再看是不是被限速。";
+                    + "点下面「测网速」量一下上下行到底多少 Mbps，再看是不是被限速。";
             action = "✅ 你能直接做的：\n"
-                    + "1. 打开网页测速版量实际下行 Mbps\n"
-                    + "2. 换私有 DNS，看网页打开是否变快\n"
-                    + "3. 若下行只有几兆 → 就是套餐带宽问题，手机端改不了";
+                    + "1. 点「测网速」量实际上下行 Mbps\n"
+                    + "2. 点「扫局域网设备」看有没有陌生设备在蹭网\n"
+                    + "3. 换私有 DNS，看网页打开是否变快\n"
+                    + "4. 若下行只有几兆 → 就是套餐带宽问题，手机端改不了";
             advice = "WiFi 体检报告\n"
                     + "链路延迟丢包均正常，信号 " + rssi + "dBm。\n"
                     + "结论：带宽不足，非信号/干扰问题。\n"
@@ -298,6 +347,296 @@ public class MainActivity extends AppCompatActivity {
 
         lastAdvice = advice;
         return sb.toString();
+    }
+
+    // ================= 测速（上下行 Mbps） =================
+
+    private static class SpeedResult {
+        double mbps = -1;
+        long ms = 0;
+        long bytes = 0;
+        boolean ok = false;
+        String err = "";
+    }
+
+    private void runSpeedTest() {
+        if (checking) { toast("正在测速或体检，稍等"); return; }
+        checking = true;
+        tvVerdict.setText("测速中…\n下载 8MB + 上传 3MB，请保持 WiFi 连接，约 10–30 秒");
+        new Thread(() -> {
+            SpeedResult down = measureDownload();
+            SpeedResult up = measureUpload();
+            StringBuilder sb = new StringBuilder();
+            sb.append("【网速实测】\n");
+            if (down.ok) {
+                sb.append("下载 ").append(f(down.mbps)).append(" Mbps")
+                  .append("（").append(down.ms).append(" ms / ").append(fMB(down.bytes)).append("）\n");
+            } else {
+                sb.append("下载失败：").append(down.err).append("\n");
+            }
+            if (up.ok) {
+                sb.append("上传 ").append(f(up.mbps)).append(" Mbps")
+                  .append("（").append(up.ms).append(" ms / ").append(fMB(up.bytes)).append("）\n");
+            } else {
+                sb.append("上传失败：").append(up.err).append("\n");
+            }
+            if (down.ok) {
+                double d = down.mbps;
+                if (d < 8) {
+                    sb.append("\n结论：下行只有 ").append(f(d)).append(" Mbps，偏低。看 1080P 会卡，属带宽/限速问题。");
+                } else if (d < 25) {
+                    sb.append("\n结论：下行 ").append(f(d)).append(" Mbps，基本够刷视频，多人同时用会卡，属带宽不足。");
+                } else {
+                    sb.append("\n结论：下行 ").append(f(d)).append(" Mbps，带宽够用。卡就不是带宽问题，回到「一键体检」看延迟/丢包。");
+                }
+            }
+            StringBuilder a = new StringBuilder("WiFi 测速报告\n");
+            a.append("下载 ").append(down.ok ? f(down.mbps) + " Mbps" : "失败").append(" / ");
+            a.append("上传 ").append(up.ok ? f(up.mbps) + " Mbps" : "失败").append("\n");
+            a.append("测速节点 speed.cloudflare.com\n");
+            a.append("说明：若下行远低于套餐带宽，基本可判定限速或带宽不足。");
+            lastAdvice = a.toString();
+            String text = sb.toString();
+            runOnUiThread(() -> { tvVerdict.setText(text); tvVerdict.scrollTo(0, 0); });
+            checking = false;
+        }).start();
+    }
+
+    private SpeedResult measureDownload() {
+        SpeedResult r = new SpeedResult();
+        final int WARM = 1_000_000;
+        final int TOTAL = 8_000_000;
+        HttpURLConnection c = null;
+        try {
+            URL u = new URL("https://speed.cloudflare.com/__down?bytes=" + TOTAL);
+            c = (HttpURLConnection) u.openConnection();
+            c.setConnectTimeout(12000);
+            c.setReadTimeout(25000);
+            c.setRequestProperty("User-Agent", "WifiCheck/1.2");
+            c.connect();
+            InputStream in = new BufferedInputStream(c.getInputStream(), 32768);
+            byte[] buf = new byte[16384];
+            long totalRead = 0, measured = 0, tStart = 0;
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                totalRead += n;
+                if (tStart == 0) {
+                    if (totalRead >= WARM) tStart = System.nanoTime();
+                } else {
+                    measured += n;
+                }
+            }
+            in.close();
+            r.bytes = measured;
+            if (tStart == 0) { r.err = "下载量不足，测速样本太小"; return r; }
+            r.ms = (System.nanoTime() - tStart) / 1_000_000L;
+            if (r.ms <= 0) r.ms = 1;
+            r.mbps = (measured * 8.0 / 1_000_000.0) / (r.ms / 1000.0);
+            r.ok = true;
+        } catch (Exception e) {
+            r.err = shortErr(e);
+        } finally {
+            if (c != null) c.disconnect();
+        }
+        return r;
+    }
+
+    private SpeedResult measureUpload() {
+        SpeedResult r = new SpeedResult();
+        final int TOTAL = 3_000_000;
+        HttpURLConnection c = null;
+        try {
+            URL u = new URL("https://speed.cloudflare.com/__up?bytes=" + TOTAL);
+            c = (HttpURLConnection) u.openConnection();
+            c.setDoOutput(true);
+            c.setRequestMethod("POST");
+            c.setConnectTimeout(12000);
+            c.setReadTimeout(25000);
+            c.setFixedLengthStreamingMode(TOTAL);
+            c.setRequestProperty("Content-Type", "application/octet-stream");
+            c.setRequestProperty("User-Agent", "WifiCheck/1.2");
+            byte[] chunk = new byte[32768];
+            Arrays.fill(chunk, (byte) 0x41);
+            long tStart = System.nanoTime();
+            OutputStream os = c.getOutputStream();
+            int sent = 0;
+            while (sent < TOTAL) {
+                int n = Math.min(chunk.length, TOTAL - sent);
+                os.write(chunk, 0, n);
+                sent += n;
+            }
+            os.flush();
+            int code = c.getResponseCode();
+            r.ms = (System.nanoTime() - tStart) / 1_000_000L;
+            if (r.ms <= 0) r.ms = 1;
+            if (code >= 200 && code < 400) {
+                r.bytes = TOTAL;
+                r.mbps = (TOTAL * 8.0 / 1_000_000.0) / (r.ms / 1000.0);
+                r.ok = true;
+            } else {
+                r.err = "HTTP " + code;
+            }
+            os.close();
+        } catch (Exception e) {
+            r.err = shortErr(e);
+        } finally {
+            if (c != null) c.disconnect();
+        }
+        return r;
+    }
+
+    private static String shortErr(Exception e) {
+        String m = e.getMessage();
+        if (m == null) return e.getClass().getSimpleName();
+        if (m.length() > 60) m = m.substring(0, 60);
+        return e.getClass().getSimpleName() + ": " + m;
+    }
+
+    // ================= 局域网设备扫描 =================
+
+    private void runDeviceScan() {
+        if (scanningDevices) { toast("正在扫描，稍等"); return; }
+        scanningDevices = true;
+        rows.clear();
+        adapter.notifyDataSetChanged();
+        tvVerdict.setText("扫描局域网设备…约 10–15 秒\n正在逐个探测同网段主机（不影响上网）");
+        new Thread(() -> {
+            String gw = getGatewayIp();
+            String base = subnetBase(gw);
+            String myIp = getLocalIp();
+            final Set<String> up = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
+
+            ExecutorService pool = Executors.newFixedThreadPool(32);
+            List<Future<?>> futures = new ArrayList<>();
+            for (int i = 1; i <= 254; i++) {
+                final String ip = base + i;
+                futures.add(pool.submit(() -> { if (pingOnce(ip)) up.add(ip); }));
+            }
+            for (Future<?> fu : futures) { try { fu.get(); } catch (Exception ignored) {} }
+            pool.shutdown();
+
+            Map<String, String> arp = readArp();
+            for (String ip : arp.keySet()) {
+                if (ip.startsWith(base)) up.add(ip);
+            }
+
+            List<String> ips = new ArrayList<>(up);
+            Collections.sort(ips, new Comparator<String>() {
+                public int compare(String a, String b) { return Integer.compare(ipInt(a), ipInt(b)); }
+            });
+
+            List<String> lines = new ArrayList<>();
+            int unknown = 0;
+            for (String ip : ips) {
+                String mac = arp.get(ip);
+                String vendor = ouiVendor(mac);
+                String tags = "";
+                if (ip.equals(gw)) tags += " 网关";
+                if (myIp != null && ip.equals(myIp)) tags += " 本机";
+                boolean stranger = "未知厂商".equals(vendor)
+                        && !ip.equals(gw)
+                        && !(myIp != null && ip.equals(myIp));
+                if (stranger) unknown++;
+                lines.add(ip + "  " + vendor + "  " + (mac != null ? mac : "无MAC")
+                        + (tags.isEmpty() ? "" : ("  ←" + tags.trim()))
+                        + (stranger ? "  ⚠" : ""));
+            }
+
+            StringBuilder head = new StringBuilder();
+            head.append("局域网设备 ").append(ips.size()).append(" 台");
+            if (unknown > 0) head.append("\n其中 ").append(unknown).append(" 台厂商未知（⚠）最可能是陌生设备");
+            head.append("\n共网段：").append(base).append("x\n\n");
+
+            final List<String> flines = lines;
+            final String fhead = head.toString();
+            runOnUiThread(() -> {
+                rows.clear();
+                rows.addAll(flines);
+                adapter.notifyDataSetChanged();
+                tvVerdict.setText(fhead
+                        + "\n怎么用：看到 ⚠ 陌生 MAC，就点「打开路由器后台」→ 已连接设备 → 禁用\n"
+                        + "口诀：满格慢=带宽问题；少格慢=信号问题");
+                tvVerdict.scrollTo(0, 0);
+            });
+            scanningDevices = false;
+        }).start();
+    }
+
+    private static boolean pingOnce(String ip) {
+        Process p = null;
+        try {
+            p = new ProcessBuilder("/system/bin/ping", "-c", "1", "-W", "1", ip)
+                    .redirectErrorStream(true).start();
+            return p.waitFor() == 0;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            if (p != null) { try { p.destroy(); } catch (Exception ignored) {} }
+        }
+    }
+
+    private static String subnetBase(String gw) {
+        if (gw == null || gw.isEmpty()) return "192.168.1.";
+        String[] p = gw.split("\\.");
+        if (p.length == 4) return p[0] + "." + p[1] + "." + p[2] + ".";
+        if (p.length == 3) return gw + ".";
+        return "192.168.1.";
+    }
+
+    private static int ipInt(String ip) {
+        try {
+            String[] p = ip.split("\\.");
+            if (p.length != 4) return 0;
+            return (Integer.parseInt(p[0]) << 24) | (Integer.parseInt(p[1]) << 16)
+                    | (Integer.parseInt(p[2]) << 8) | Integer.parseInt(p[3]);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static Map<String, String> readArp() {
+        Map<String, String> m = new HashMap<>();
+        BufferedReader r = null;
+        try {
+            r = new BufferedReader(new FileReader("/proc/net/arp"));
+            String line = r.readLine();
+            while ((line = r.readLine()) != null) {
+                String[] p = line.trim().split("\\s+");
+                if (p.length >= 4) {
+                    String ip = p[0];
+                    String mac = p[3];
+                    if (mac != null && mac.length() >= 11
+                            && !"00:00:00:00:00:00".equals(mac)
+                            && !"00:00:00:00:00:00".equalsIgnoreCase(mac)) {
+                        m.put(ip, mac.toUpperCase());
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (r != null) { try { r.close(); } catch (Exception ignored) {} }
+        }
+        return m;
+    }
+
+    private static String ouiVendor(String mac) {
+        if (mac == null) return "未知厂商";
+        String h = mac.toUpperCase().replace(":", "").replace("-", "");
+        if (h.length() < 6) return "未知厂商";
+        String v = OUI.get(h.substring(0, 6));
+        return v != null ? v : "未知厂商";
+    }
+
+    private String getLocalIp() {
+        try {
+            WifiInfo wi = wifiManager.getConnectionInfo();
+            if (wi == null) return null;
+            int ip = wi.getIpAddress();
+            if (ip == 0) return null;
+            return (ip & 0xff) + "." + ((ip >> 8) & 0xff) + "." + ((ip >> 16) & 0xff) + "." + ((ip >> 24) & 0xff);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     // ================= 可执行动作 =================
@@ -315,12 +654,12 @@ public class MainActivity extends AppCompatActivity {
 
     private void copyAdvice() {
         if (lastAdvice == null || lastAdvice.isEmpty()) {
-            toast("先点「一键体检」生成报告");
+            toast("先点「一键体检」或「测网速」生成报告");
             return;
         }
         try {
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            cm.setPrimaryClip(ClipData.newPlainText("WiFi体检报告", lastAdvice));
+            cm.setPrimaryClip(ClipData.newPlainText("WiFi报告", lastAdvice));
             toast("报告已复制，可直接发给房东/运营商");
         } catch (Exception e) {
             toast("复制失败");
