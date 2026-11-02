@@ -46,7 +46,7 @@ public class MainActivity extends AppCompatActivity {
     private WifiManager wifiManager;
     private ListView listView;
     private TextView tvVerdict;
-    private Button btnScan, btnCheck, btnRouter, btnCopy, btnWifiSet, btnBattery;
+    private Button btnScan, btnCheck, btnRouter, btnCopy, btnWifiSet, btnBattery, btnDns;
     private final List<String> rows = new ArrayList<>();
     private ArrayAdapter<String> adapter;
 
@@ -76,6 +76,7 @@ public class MainActivity extends AppCompatActivity {
         btnCopy = findViewById(R.id.btnCopy);
         btnWifiSet = findViewById(R.id.btnWifiSet);
         btnBattery = findViewById(R.id.btnBattery);
+        btnDns = findViewById(R.id.btnDns);
 
         tvVerdict.setMovementMethod(new ScrollingMovementMethod());
         adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, rows);
@@ -94,6 +95,7 @@ public class MainActivity extends AppCompatActivity {
             try { startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); }
             catch (Exception e) { toast("打不开省电设置"); }
         });
+        btnDns.setOnClickListener(v -> openDns());
 
         registerReceiver(scanReceiver, new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION));
     }
@@ -207,6 +209,15 @@ public class MainActivity extends AppCompatActivity {
 
     private static String f(double v) { return String.format("%.1f", v); }
 
+    private static String joinList(List<String> list) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < list.size(); i++) {
+            if (i > 0) b.append(", ");
+            b.append(list.get(i));
+        }
+        return b.toString();
+    }
+
     private static String levelText(int rssi) {
         if (rssi >= -55) return "很强";
         if (rssi >= -67) return "良好";
@@ -228,7 +239,7 @@ public class MainActivity extends AppCompatActivity {
         sb.append("【当前连接】\n");
         sb.append("信号 ").append(rssi).append(" dBm（").append(levelText(rssi))
           .append("） 频段 ").append(band).append("\n");
-        if (!dns.isEmpty()) sb.append("DNS ").append(String.join(", ", dns)).append("\n");
+        if (!dns.isEmpty()) sb.append("DNS ").append(joinList(dns)).append("\n");
         sb.append("\n【第一跳：你的手机 → 路由器 ").append(gw).append("】\n");
         sb.append(g.line());
         sb.append("\n【出网：你的手机 → 外网 223.5.5.5】\n");
@@ -239,32 +250,51 @@ public class MainActivity extends AppCompatActivity {
         double gJit = g.jitter(), pJit = p.jitter();
 
         String verdict, advice;
+        String action;
         if (g.recv == 0 || gLoss > 15 || gAvg > 40 || gJit > 60) {
             verdict = "问题出在【你和路由器之间】\n"
                     + "第一跳就丢包/高延迟，说明是信号差（隔着墙）或信道被邻居挤爆。"
                     + "这一层你自己能改的部分最多。";
-            advice = "房东你好，我这边WiFi老是卡，用工具测了一下，连到路由器这第一跳就丢包"
-                    + f(gLoss) + "%、延迟忽高忽低（" + f(gAvg) + "ms 抖动" + f(gJit) + "ms）。"
-                    + "应该是信号被墙挡了，或者周围邻居的路由器都挤在同一个信道上互相干扰。"
-                    + "方便的话能不能帮我把路由器挪个位置，或者把无线信道改成 1 或 11 试试？"
-                    + "改完应该会明显好一些，谢谢！";
+            action = "✅ 你能直接做的：\n"
+                    + "1. 点下面「扫描周边 WiFi」→ 看该改到哪个信道\n"
+                    + "2. 点「打开路由器后台」→ 无线设置 → 信道改成建议值\n"
+                    + "3. 能进 5G 就点「打开 WiFi 设置」连 5G 那个名字\n"
+                    + "4. 别贴着路由器，也别隔两堵墙";
+            advice = "WiFi 体检报告\n"
+                    + "信号 " + rssi + "dBm · 第一跳丢包 " + f(gLoss) + "% · 延迟 " + f(gAvg)
+                    + "ms · 抖动 " + f(gJit) + "ms\n"
+                    + "结论：到路由器这一跳就不稳，原因是信号衰减或信道干扰。\n"
+                    + "需要你那边做的：把无线信道改成 1 或 11，或把路由器挪到更靠中间的位置。";
         } else if (pLoss > 10 || pAvg > 120 || pJit > 80) {
             verdict = "问题出在【路由器往外（宽带侧）】\n"
                     + "到路由器这一跳很好，一出网就丢包/高延迟，是宽带本身不行、被限速，"
                     + "或者晚上被同住的人占满了。这一层你手机改不了，只能谈或自己接流量。";
-            advice = "房东你好，我这边WiFi卡，测了一下连路由器的部分完全正常，但一上网延迟就"
-                    + f(pAvg) + "ms、丢包" + f(pLoss) + "%，抖得很厉害。"
-                    + "看着像宽带带宽不够，或者晚上被占满了。方便查一下咱们宽带是多少兆的套餐吗？"
-                    + "谢谢！";
+            action = "✅ 你能直接做的：\n"
+                    + "1. 换私有 DNS（点下面按钮），排掉 DNS 慢导致的「假卡」\n"
+                    + "2. 避开晚上 8–11 点高峰期测一次对比\n"
+                    + "3. 报告发给房东/运营商，让他查套餐带宽与被限速";
+            advice = "WiFi 体检报告\n"
+                    + "第一跳正常，但出网延迟 " + f(pAvg) + "ms、丢包 " + f(pLoss)
+                    + "%、抖动 " + f(pJit) + "ms\n"
+                    + "结论：宽带侧问题（带宽不足/被限速/被占满）。\n"
+                    + "需要你那边做的：确认宽带套餐是多少兆，检查是否被限速，"
+                    + "或路由器是否被其他设备占满。";
         } else {
             verdict = "链路健康：延迟和丢包都正常\n"
                     + "说明不是信号也不是干扰，卡只可能是【带宽不够】。"
                     + "去网页版测一下下行到底有多少 Mbps，再看是不是被限速。";
-            advice = "房东你好，我这边WiFi连得上也不掉线，但速度慢，测速只有几兆。"
-                    + "宽带是多少兆的套餐？能不能帮我看下是不是被限速了？谢谢！";
+            action = "✅ 你能直接做的：\n"
+                    + "1. 打开网页测速版量实际下行 Mbps\n"
+                    + "2. 换私有 DNS，看网页打开是否变快\n"
+                    + "3. 若下行只有几兆 → 就是套餐带宽问题，手机端改不了";
+            advice = "WiFi 体检报告\n"
+                    + "链路延迟丢包均正常，信号 " + rssi + "dBm。\n"
+                    + "结论：带宽不足，非信号/干扰问题。\n"
+                    + "需要你那边做的：确认宽带套餐带宽，检查限速设置。";
         }
 
         sb.append("\n【结论】\n").append(verdict).append("\n");
+        sb.append("\n").append(action).append("\n");
 
         lastAdvice = advice;
         return sb.toString();
@@ -285,15 +315,29 @@ public class MainActivity extends AppCompatActivity {
 
     private void copyAdvice() {
         if (lastAdvice == null || lastAdvice.isEmpty()) {
-            toast("先点「一键体检」生成话术");
+            toast("先点「一键体检」生成报告");
             return;
         }
         try {
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            cm.setPrimaryClip(ClipData.newPlainText("给房东的话", lastAdvice));
-            toast("已复制，直接粘贴发给房东");
+            cm.setPrimaryClip(ClipData.newPlainText("WiFi体检报告", lastAdvice));
+            toast("报告已复制，可直接发给房东/运营商");
         } catch (Exception e) {
             toast("复制失败");
+        }
+    }
+
+    private void openDns() {
+        try {
+            if (Build.VERSION.SDK_INT >= 28) {
+                startActivity(new Intent("android.settings.PRIVATE_DNS_SETTINGS"));
+                toast("选「私人 DNS 提供商」→ 填 dns.alidns.com 或 1dot1dot1dot1.cloudflare-dns.com");
+            } else {
+                toast("系统低于 9.0，没有私人 DNS 选项");
+            }
+        } catch (Exception e) {
+            try { startActivity(new Intent(Settings.ACTION_WIRELESS_SETTINGS)); }
+            catch (Exception e2) { toast("打不开网络设置"); }
         }
     }
 

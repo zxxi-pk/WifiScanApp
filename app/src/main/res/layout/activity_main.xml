@@ -47,8 +47,14 @@
             android:layout_height="wrap_content" />
 
         <Button
+            android:id="@+id/btnDns"
+            android:text="⚡ 换私有 DNS（治「网页转圈圈」）"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <Button
             android:id="@+id/btnCopy"
-            android:text="📋 复制给房东的话（体检后可用）"
+            android:text="📋 复制体检报告"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
@@ -66,7 +72,7 @@
 
         <TextView
             android:id="@+id/tvTip"
-            android:text="提示：点「复制给房东的话」后，直接粘贴到微信发给房东。"
+            android:text="提示：路由器后台地址就是「体检」里显示的第一跳 IP，密码多半在路由器背面。"
             android:paddingTop="8dp"
             android:paddingBottom="10dp"
             android:textSize="12sp"
