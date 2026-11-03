@@ -7,1699 +7,1095 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.graphics.Typeface;
-import android.net.ConnectivityManager;
-import android.net.LinkProperties;
-import android.net.RouteInfo;
 import android.net.Uri;
 import android.net.wifi.ScanResult;
-import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
-import android.util.TypedValue;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
 
-    // ---------- 视图 ----------
-    private ScrollView scroll;
-    private LinearLayout cardCheck, cardScan, cardSpeed, cardDev, cardHist;
-    private LinearLayout bodyCheck, bodyScan, bodySpeed, bodyDev, bodyHist;
-    private TextView arrowCheck, arrowScan, arrowSpeed, arrowDev, arrowHist;
-    private TextView hintCheck, hintScan, hintSpeed, hintDev, hintHist;
-    private ProgressBar pbCheck, pbScan, pbSpeed, pbDev;
-    private TextView statusCheck, resultCheck, statusScan, resultScan,
-            statusSpeed, resultSpeed, statusDev;
-    private LinearLayout apList, devList, histList;
-    private TextView tvHistEmpty, tvTip, tvSub;
+    // ---- 配色 ----
+    private static final int C_INK = 0xFF17223B;
+    private static final int C_SUB = 0xFF5C6B80;
+    private static final int C_DIM = 0xFF8A94A6;
+    private static final int C_FAINT = 0xFF95A0B0;
+    private static final int C_OK = 0xFF0E9F6E;
+    private static final int C_WARN = 0xFFB45309;
+    private static final int C_BAD = 0xFFB3261E;
+
+    private static final int REQ_SCAN = 7;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
+    private WifiManager wm;
 
-    private volatile boolean busyCheck, busyScan, busySpeed, busyDev;
-    private String reportCheck = "", reportScan = "", reportSpeed = "", reportDev = "";
+    // ---- 页面 ----
+    private View pageOverview, pageDiag, pageHist, pageTools;
+    private View iconOverview, iconDiag, iconHist, iconTools;
+    private TextView labelOverview, labelDiag, labelHist, labelTools;
+    private int page = 0;
 
-    private String gwIp = "";
-    private String myIp = "";
+    // ---- 总览 ----
+    private TextView tvSsid, tvNetMeta, tvVerdict, tvVerdictSub, tvTag;
+    private Views.ScoreRing ringScore;
+    private TextView tvOvLat, tvOvLatState, tvOvLoss, tvOvLossState;
+    private TextView tvOvDown, tvOvDownState, tvOvDev, tvOvDevState;
+    private Button btnRun;
+    private TextView tvRunStatus, tvScoreBreak;
 
-    private static final String HINT_CHECK = "分两段 ping，看是哪一段慢";
-    private static final String HINT_SCAN = "看 2.4G 该改成哪个信道";
-    private static final String HINT_SPEED = "上下行 Mbps，边下边看数";
-    private static final String HINT_DEV = "设备类型、品牌、型号";
-    private static final String HINT_HIST = "点一条看当时的完整结果";
+    // ---- 诊断 ----
+    private TextView tvDiagMeta;
+    private TextView segLat, segCh, segSpeed, segDev;
+    private View diagLat, diagCh, diagSpeed, diagDev;
+    private int seg = 0;
 
-    // ============================================================
-    // OUI 厂商表
-    // ============================================================
-    private static final Map<String, String> OUI = new HashMap<>();
+    private Views.Band bandGw, bandWan;
+    private TextView tvGwVal, tvWanVal, tvJitter, tvJitterState, tvLossBig, tvLossState;
+    private View latVerdictBox;
+    private TextView tvLatVerdict, tvLatAdvice;
+    private View foldLat;
+    private TextView tvFoldLatTitle, tvLatDetail;
+    private boolean foldLatOpen = false;
 
-    private static void putOui(String hex, String name) {
-        OUI.put(hex.replace(":", "").replace("-", "").toUpperCase(Locale.US), name);
-    }
+    private Views.ChannelChart chartCh;
+    private TextView tvCurCh, tvSugCh, tvChVerdict, tvChAdvice, tvFoldChTitle;
+    private View chVerdictBox, foldCh;
+    private LinearLayout apList;
+    private boolean foldChOpen = false;
 
-    static {
-        // 网络设备 / 路由器
-        putOui("001D0F", "TP-Link");   putOui("14CC20", "TP-Link");  putOui("A42BB0", "TP-Link");
-        putOui("50642B", "TP-Link");   putOui("3C46D8", "TP-Link");  putOui("F4F26D", "TP-Link");
-        putOui("C46E1F", "TP-Link");   putOui("B0BE76", "TP-Link");  putOui("00E0B8", "TP-Link");
-        putOui("9C5322", "Compal/宽带猫"); putOui("001122", "Tenda"); putOui("C83A35", "Tenda");
-        putOui("D8320E", "Tenda");     putOui("D46E5C", "华为/荣耀路由");
-        putOui("F09FC2", "Ubiquiti");  putOui("788A20", "Ubiquiti"); putOui("0418D6", "Ubiquiti");
-        putOui("000C29", "VMware");    putOui("005056", "VMware");    putOui("00155D", "微软虚拟");
+    private Views.SpeedRing ringSpeed;
+    private TextView tvSpeedStatus, tvDownVal, tvUpVal, tvCostVal, tvSpeedVerdict, tvSpeedAdvice;
+    private Views.Band bandDown, bandUp, bandCost;
+    private View speedVerdictBox;
 
-        // 手机 / 平板
-        putOui("04CF8C", "小米");      putOui("286C07", "小米");      putOui("64CC2E", "小米");
-        putOui("7811DC", "小米");      putOui("8CBEBE", "小米");      putOui("009E11", "小米");
-        putOui("F8A45F", "小米");      putOui("50EC50", "小米");
-        putOui("00E0FC", "华为");      putOui("283CE4", "华为");      putOui("4846FB", "华为");
-        putOui("70723C", "华为");      putOui("9C28EF", "华为");      putOui("F4C714", "华为");
-        putOui("28CFE9", "苹果");      putOui("8C8590", "苹果");      putOui("001B63", "苹果");
-        putOui("3C0754", "苹果");      putOui("A483E7", "苹果");      putOui("F0DBF8", "苹果");
-        putOui("9C35EB", "苹果");      putOui("D0E140", "苹果");
-        putOui("002637", "三星");      putOui("3423BA", "三星");      putOui("5C0A5B", "三星");
-        putOui("8C7712", "三星");      putOui("E8508B", "三星");      putOui("C0BDD1", "三星");
-        putOui("001A11", "Google");    putOui("3C5AB4", "Google");    putOui("F4F5D8", "Google");
-        putOui("94DF4E", "OPPO");      putOui("C0EEFB", "OPPO");      putOui("7C1DD9", "vivo");
-        putOui("E45D75", "vivo");      putOui("2C5BB8", "魅族");      putOui("FCECDA", "一加");
+    private TextView tvDevTotal, tvDevKnown, tvDevUnknown, tvDevVerdict, tvDevAdvice;
+    private LinearLayout devList;
+    private View devVerdictBox;
 
-        // 电脑 / 网卡
-        putOui("001B21", "Intel");     putOui("001E67", "Intel");     putOui("3C970E", "Intel");
-        putOui("A4BB6D", "Intel");     putOui("00A0C9", "Intel");     putOui("00E04C", "Realtek");
-        putOui("24A43C", "华硕");      putOui("1C872C", "华硕");      putOui("2C56DC", "华硕");
-        putOui("B827EB", "树莓派");    putOui("DCA632", "树莓派");    putOui("E45F01", "树莓派");
-        putOui("001132", "群晖 NAS");  putOui("0011D8", "群晖 NAS");
+    // ---- 记录 ----
+    private LinearLayout histList;
+    private TextView tvHistEmpty, btnHistClear;
 
-        // 电视 / 盒子 / 打印
-        putOui("7C49EB", "小米电视");  putOui("F0B429", "小米盒子");  putOui("846569", "海信");
-        putOui("0018DD", "Silicom/打印机"); putOui("3C2AF4", "Brother 打印");
-        putOui("0021B7", "Lexmark 打印");   putOui("9C934E", "HP 打印");
-        putOui("0000AA", "网络设备");  putOui("B0C554", "D-Link");    putOui("0024B2", "Netgear");
-    }
+    // ---- 工具 ----
+    private View btnRouter, btnDns, btnBattery, btnWifiSet;
+    private TextView tvRouterIp;
+    private Button btnCopy;
 
-    // ============================================================
-    // 生命周期
-    // ============================================================
+    // ---- 数据 ----
+    private static final String PREF = "wifiscan";
+    private static final String K_HIST = "hist_v2";
+    private static final String SEP = "\u0001";
+    private static final int HIST_MAX = 30;
+
+    private String gateway = "";
+    private String localIp = "";
+    private Net.WifiBrief wifi = new Net.WifiBrief();
+    private Net.PingStat statGw, statWan;
+    private int[] chCounts;
+    private int curChannel = -1, sugChannel = -1, apCount = 0;
+    private double downMbps = -1, upMbps = -1, downMs = -1;
+    private List<Net.Dev> devices;
+    private int strayCount = 0;
+    private long lastCheckAt = 0;
+    private String lastReport = "";
+    private int lastScore = 0;
+
+    private boolean busy = false;
+    private final ExecutorService pool = Executors.newCachedThreadPool();
+
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         setContentView(R.layout.activity_main);
+        wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        bind();
+        refreshHead();
+        loadHistory();
+        setPage(0);
+        setSeg(0);
+    }
 
-        scroll = findViewById(R.id.scroll);
-        tvSub = findViewById(R.id.tvSub);
-        tvTip = findViewById(R.id.tvTip);
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshHead();
+    }
 
-        cardCheck = findViewById(R.id.cardCheck);
-        cardScan = findViewById(R.id.cardScan);
-        cardSpeed = findViewById(R.id.cardSpeed);
-        cardDev = findViewById(R.id.cardDev);
-        cardHist = findViewById(R.id.cardHist);
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        pool.shutdownNow();
+    }
 
-        bodyCheck = findViewById(R.id.bodyCheck);
-        bodyScan = findViewById(R.id.bodyScan);
-        bodySpeed = findViewById(R.id.bodySpeed);
-        bodyDev = findViewById(R.id.bodyDev);
-        bodyHist = findViewById(R.id.bodyHist);
+    // ==================== 绑定 ====================
 
-        arrowCheck = findViewById(R.id.arrowCheck);
-        arrowScan = findViewById(R.id.arrowScan);
-        arrowSpeed = findViewById(R.id.arrowSpeed);
-        arrowDev = findViewById(R.id.arrowDev);
-        arrowHist = findViewById(R.id.arrowHist);
+    private void bind() {
+        pageOverview = findViewById(R.id.pageOverview);
+        pageDiag = findViewById(R.id.pageDiag);
+        pageHist = findViewById(R.id.pageHist);
+        pageTools = findViewById(R.id.pageTools);
 
-        hintCheck = findViewById(R.id.hintCheck);
-        hintScan = findViewById(R.id.hintScan);
-        hintSpeed = findViewById(R.id.hintSpeed);
-        hintDev = findViewById(R.id.hintDev);
-        hintHist = findViewById(R.id.hintHist);
+        iconOverview = findViewById(R.id.iconOverview);
+        iconDiag = findViewById(R.id.iconDiag);
+        iconHist = findViewById(R.id.iconHist);
+        iconTools = findViewById(R.id.iconTools);
+        labelOverview = findViewById(R.id.labelOverview);
+        labelDiag = findViewById(R.id.labelDiag);
+        labelHist = findViewById(R.id.labelHist);
+        labelTools = findViewById(R.id.labelTools);
 
-        pbCheck = findViewById(R.id.pbCheck);
-        pbScan = findViewById(R.id.pbScan);
-        pbSpeed = findViewById(R.id.pbSpeed);
-        pbDev = findViewById(R.id.pbDev);
+        findViewById(R.id.tabOverview).setOnClickListener(v -> setPage(0));
+        findViewById(R.id.tabDiag).setOnClickListener(v -> setPage(1));
+        findViewById(R.id.tabHist).setOnClickListener(v -> setPage(2));
+        findViewById(R.id.tabTools).setOnClickListener(v -> setPage(3));
 
-        statusCheck = findViewById(R.id.statusCheck);
-        resultCheck = findViewById(R.id.resultCheck);
-        statusScan = findViewById(R.id.statusScan);
-        resultScan = findViewById(R.id.resultScan);
-        statusSpeed = findViewById(R.id.statusSpeed);
-        resultSpeed = findViewById(R.id.resultSpeed);
-        statusDev = findViewById(R.id.statusDev);
+        tvSsid = findViewById(R.id.tvSsid);
+        tvNetMeta = findViewById(R.id.tvNetMeta);
+        tvVerdict = findViewById(R.id.tvVerdict);
+        tvVerdictSub = findViewById(R.id.tvVerdictSub);
+        tvTag = findViewById(R.id.tvTag);
+        ringScore = findViewById(R.id.ringScore);
+        ringScore.setDark(true);
 
+        tvOvLat = findViewById(R.id.tvOvLat);
+        tvOvLatState = findViewById(R.id.tvOvLatState);
+        tvOvLoss = findViewById(R.id.tvOvLoss);
+        tvOvLossState = findViewById(R.id.tvOvLossState);
+        tvOvDown = findViewById(R.id.tvOvDown);
+        tvOvDownState = findViewById(R.id.tvOvDownState);
+        tvOvDev = findViewById(R.id.tvOvDev);
+        tvOvDevState = findViewById(R.id.tvOvDevState);
+        btnRun = findViewById(R.id.btnRun);
+        tvRunStatus = findViewById(R.id.tvRunStatus);
+        tvScoreBreak = findViewById(R.id.tvScoreBreak);
+
+        findViewById(R.id.ovLat).setOnClickListener(v -> jumpDiag(0));
+        findViewById(R.id.ovLoss).setOnClickListener(v -> jumpDiag(0));
+        findViewById(R.id.ovDown).setOnClickListener(v -> jumpDiag(2));
+        findViewById(R.id.ovDev).setOnClickListener(v -> jumpDiag(3));
+        btnRun.setOnClickListener(v -> runAll());
+
+        tvDiagMeta = findViewById(R.id.tvDiagMeta);
+        segLat = findViewById(R.id.segLat);
+        segCh = findViewById(R.id.segCh);
+        segSpeed = findViewById(R.id.segSpeed);
+        segDev = findViewById(R.id.segDev);
+        diagLat = findViewById(R.id.diagLat);
+        diagCh = findViewById(R.id.diagCh);
+        diagSpeed = findViewById(R.id.diagSpeed);
+        diagDev = findViewById(R.id.diagDev);
+        segLat.setOnClickListener(v -> setSeg(0));
+        segCh.setOnClickListener(v -> setSeg(1));
+        segSpeed.setOnClickListener(v -> setSeg(2));
+        segDev.setOnClickListener(v -> setSeg(3));
+
+        bandGw = findViewById(R.id.bandGw);
+        bandWan = findViewById(R.id.bandWan);
+        tvGwVal = findViewById(R.id.tvGwVal);
+        tvWanVal = findViewById(R.id.tvWanVal);
+        tvJitter = findViewById(R.id.tvJitter);
+        tvJitterState = findViewById(R.id.tvJitterState);
+        tvLossBig = findViewById(R.id.tvLossBig);
+        tvLossState = findViewById(R.id.tvLossState);
+        latVerdictBox = findViewById(R.id.latVerdictBox);
+        tvLatVerdict = findViewById(R.id.tvLatVerdict);
+        tvLatAdvice = findViewById(R.id.tvLatAdvice);
+        foldLat = findViewById(R.id.foldLat);
+        tvFoldLatTitle = findViewById(R.id.tvFoldLatTitle);
+        tvLatDetail = findViewById(R.id.tvLatDetail);
+        foldLat.setOnClickListener(v -> {
+            foldLatOpen = !foldLatOpen;
+            tvLatDetail.setVisibility(foldLatOpen ? View.VISIBLE : View.GONE);
+            tvFoldLatTitle.setText(foldLatOpen ? "原始数据  ▴" : "原始数据  ▾");
+        });
+
+        chartCh = findViewById(R.id.chartCh);
+        tvCurCh = findViewById(R.id.tvCurCh);
+        tvSugCh = findViewById(R.id.tvSugCh);
+        chVerdictBox = findViewById(R.id.chVerdictBox);
+        tvChVerdict = findViewById(R.id.tvChVerdict);
+        tvChAdvice = findViewById(R.id.tvChAdvice);
+        foldCh = findViewById(R.id.foldCh);
+        tvFoldChTitle = findViewById(R.id.tvFoldChTitle);
         apList = findViewById(R.id.apList);
+        foldCh.setOnClickListener(v -> {
+            foldChOpen = !foldChOpen;
+            apList.setVisibility(foldChOpen ? View.VISIBLE : View.GONE);
+            tvFoldChTitle.setText(foldChOpen ? "周边 WiFi 列表  ▴" : "周边 WiFi 列表  ▾");
+        });
+
+        ringSpeed = findViewById(R.id.ringSpeed);
+        tvSpeedStatus = findViewById(R.id.tvSpeedStatus);
+        bandDown = findViewById(R.id.bandDown);
+        bandUp = findViewById(R.id.bandUp);
+        bandCost = findViewById(R.id.bandCost);
+        tvDownVal = findViewById(R.id.tvDownVal);
+        tvUpVal = findViewById(R.id.tvUpVal);
+        tvCostVal = findViewById(R.id.tvCostVal);
+        speedVerdictBox = findViewById(R.id.speedVerdictBox);
+        tvSpeedVerdict = findViewById(R.id.tvSpeedVerdict);
+        tvSpeedAdvice = findViewById(R.id.tvSpeedAdvice);
+
+        tvDevTotal = findViewById(R.id.tvDevTotal);
+        tvDevKnown = findViewById(R.id.tvDevKnown);
+        tvDevUnknown = findViewById(R.id.tvDevUnknown);
         devList = findViewById(R.id.devList);
+        devVerdictBox = findViewById(R.id.devVerdictBox);
+        tvDevVerdict = findViewById(R.id.tvDevVerdict);
+        tvDevAdvice = findViewById(R.id.tvDevAdvice);
+
         histList = findViewById(R.id.histList);
         tvHistEmpty = findViewById(R.id.tvHistEmpty);
-
-        gwIp = getGatewayIp();
-        myIp = getLocalIp();
-
-        // ---------- 折叠 ----------
-        bindFold(findViewById(R.id.headCheck), bodyCheck, arrowCheck, hintCheck, HINT_CHECK);
-        bindFold(findViewById(R.id.headScan), bodyScan, arrowScan, hintScan, HINT_SCAN);
-        bindFold(findViewById(R.id.headSpeed), bodySpeed, arrowSpeed, hintSpeed, HINT_SPEED);
-        bindFold(findViewById(R.id.headDev), bodyDev, arrowDev, hintDev, HINT_DEV);
-        bindFold(findViewById(R.id.headHist), bodyHist, arrowHist, hintHist, HINT_HIST);
-
-        findViewById(R.id.foldCheck).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { closeCard(bodyCheck, arrowCheck, hintCheck, HINT_CHECK); }
-        });
-        findViewById(R.id.foldScan).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { closeCard(bodyScan, arrowScan, hintScan, HINT_SCAN); }
-        });
-        findViewById(R.id.foldSpeed).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { closeCard(bodySpeed, arrowSpeed, hintSpeed, HINT_SPEED); }
-        });
-        findViewById(R.id.foldDev).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { closeCard(bodyDev, arrowDev, hintDev, HINT_DEV); }
+        btnHistClear = findViewById(R.id.btnHistClear);
+        btnHistClear.setOnClickListener(v -> {
+            prefs().edit().remove(K_HIST).apply();
+            loadHistory();
+            toast("记录已清空");
         });
 
-        // ---------- 开始检测 ----------
-        findViewById(R.id.headCheck).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                boolean wasOpen = bodyCheck.getVisibility() == View.VISIBLE;
-                toggle(bodyCheck, arrowCheck, hintCheck, HINT_CHECK);
-                if (!wasOpen && reportCheck.length() == 0) startCheck();
+        btnRouter = findViewById(R.id.btnRouter);
+        btnDns = findViewById(R.id.btnDns);
+        btnBattery = findViewById(R.id.btnBattery);
+        btnWifiSet = findViewById(R.id.btnWifiSet);
+        btnCopy = findViewById(R.id.btnCopy);
+        tvRouterIp = findViewById(R.id.tvRouterIp);
+
+        btnRouter.setOnClickListener(v -> {
+            String gw = Net.getGatewayIp(this);
+            if (TextUtils.isEmpty(gw)) { toast("没拿到网关地址"); return; }
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("http://" + gw)));
+            } catch (Exception e) {
+                toast("打不开浏览器：" + e.getClass().getSimpleName());
             }
         });
-        findViewById(R.id.headScan).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                boolean wasOpen = bodyScan.getVisibility() == View.VISIBLE;
-                toggle(bodyScan, arrowScan, hintScan, HINT_SCAN);
-                if (!wasOpen && reportScan.length() == 0) requestScan();
+        btnDns.setOnClickListener(v -> {
+            if (Build.VERSION.SDK_INT < 28) { toast("这台手机不支持私有 DNS（需 Android 9+）"); return; }
+            try {
+                startActivity(new Intent("android.settings.PRIVATE_DNS_SETTINGS"));
+                toast("私有 DNS 提供商填 dns.alidns.com");
+            } catch (Exception e) {
+                toast("打不开设置页");
             }
         });
-        findViewById(R.id.headSpeed).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                boolean wasOpen = bodySpeed.getVisibility() == View.VISIBLE;
-                toggle(bodySpeed, arrowSpeed, hintSpeed, HINT_SPEED);
-                if (!wasOpen && reportSpeed.length() == 0) startSpeed();
+        btnBattery.setOnClickListener(v -> {
+            try {
+                startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+            } catch (Exception e) {
+                toast("打不开设置页");
             }
         });
-        findViewById(R.id.headDev).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                boolean wasOpen = bodyDev.getVisibility() == View.VISIBLE;
-                toggle(bodyDev, arrowDev, hintDev, HINT_DEV);
-                if (!wasOpen && reportDev.length() == 0) startDevScan();
+        btnWifiSet.setOnClickListener(v -> {
+            try {
+                startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS));
+            } catch (Exception e) {
+                toast("打不开设置页");
             }
         });
-
-        findViewById(R.id.againCheck).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { startCheck(); }
-        });
-        findViewById(R.id.againScan).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { requestScan(); }
-        });
-        findViewById(R.id.againSpeed).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { startSpeed(); }
-        });
-        findViewById(R.id.againDev).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { startDevScan(); }
-        });
-
-        findViewById(R.id.btnHistClear).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                prefs().edit().remove(KEY_HIST).apply();
-                histList.removeAllViews();
-                tvHistEmpty.setVisibility(View.VISIBLE);
-                hintHist.setTag("");
-                hintHist.setText(HINT_HIST);
-                toast("记录已清空");
-            }
-        });
-
-        // ---------- 动手改 ----------
-        findViewById(R.id.btnRouter).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                String ip = gwIp == null || gwIp.length() == 0 ? "192.168.1.1" : gwIp;
-                try {
-                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("http://" + ip)));
-                } catch (Exception e) {
-                    toast("打不开浏览器：" + e.getMessage());
-                }
-            }
-        });
-
-        findViewById(R.id.btnDns).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                if (Build.VERSION.SDK_INT < 28) {
-                    toast("这台机器太老，不支持私有 DNS（需 Android 9+）");
-                    return;
-                }
-                try {
-                    startActivity(new Intent("android.settings.PRIVATE_DNS_SETTINGS"));
-                    toast("选「指定私有 DNS」，填 dns.alidns.com 或 dot.pub");
-                } catch (Exception e) {
-                    try {
-                        startActivity(new Intent(Settings.ACTION_SETTINGS));
-                    } catch (Exception ignored) { }
-                    toast("自己找：设置 → 网络 → 私有 DNS");
-                }
-            }
-        });
-
-        findViewById(R.id.btnCopy).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                StringBuilder all = new StringBuilder();
-                if (reportCheck.length() > 0) all.append("【一键体检】\n").append(reportCheck).append("\n\n");
-                if (reportScan.length() > 0) all.append("【周边 WiFi】\n").append(reportScan).append("\n\n");
-                if (reportSpeed.length() > 0) all.append("【测网速】\n").append(reportSpeed).append("\n\n");
-                if (reportDev.length() > 0) all.append("【局域网设备】\n").append(reportDev).append("\n\n");
-                if (all.length() == 0) {
-                    toast("还没跑过任何检测，先点①②③④任意一个");
-                    return;
-                }
-                copyText(all.toString());
-            }
-        });
-
-        findViewById(R.id.btnWifiSet).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                try {
-                    startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS));
-                } catch (Exception e) {
-                    toast("打不开 WiFi 设置");
-                }
-            }
-        });
-
-        findViewById(R.id.btnBattery).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                try {
-                    startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
-                } catch (Exception e) {
-                    toast("打不开电池设置");
-                }
-            }
-        });
-
-        tvTip.setText("路由器后台 " + (gwIp == null || gwIp.length() == 0 ? "（没读到网段）" : gwIp)
-                + "，密码多半贴在路由器背面。本机 IP " + (myIp == null || myIp.length() == 0 ? "?" : myIp));
-        tvSub.setText("点卡片标题展开，测完自动收起；四次检测都会留一条记录");
-
-        loadHistory();
+        btnCopy.setOnClickListener(v -> copy());
     }
 
-    // ============================================================
-    // 折叠 / 展开
-    // ============================================================
-    private void bindFold(final LinearLayout head, final LinearLayout body,
-                          final TextView arrow, final TextView hint, final String def) {
-        // 由各卡片的 head 单独处理（要同时触发检测），这里只留占位
-        if (head == null || body == null) return;
+    // ==================== 页面切换 ====================
+
+    private void setPage(int p) {
+        page = p;
+        pageOverview.setVisibility(p == 0 ? View.VISIBLE : View.GONE);
+        pageDiag.setVisibility(p == 1 ? View.VISIBLE : View.GONE);
+        pageHist.setVisibility(p == 2 ? View.VISIBLE : View.GONE);
+        pageTools.setVisibility(p == 3 ? View.VISIBLE : View.GONE);
+        tabStyle(iconOverview, labelOverview, p == 0);
+        tabStyle(iconDiag, labelDiag, p == 1);
+        tabStyle(iconHist, labelHist, p == 2);
+        tabStyle(iconTools, labelTools, p == 3);
     }
 
-    private void toggle(LinearLayout body, TextView arrow, TextView hint, String def) {
-        boolean open = body.getVisibility() == View.VISIBLE;
-        body.setVisibility(open ? View.GONE : View.VISIBLE);
-        arrow.setText(open ? "▸" : "▾");
-        Object tag = hint.getTag();
-        String sum = tag instanceof String ? (String) tag : "";
-        hint.setText(open ? (sum.length() > 0 ? sum : def) : def);
+    private void tabStyle(View icon, TextView label, boolean on) {
+        icon.setBackgroundResource(on ? R.drawable.bar_on : R.drawable.badge_soft);
+        label.setTextColor(on ? C_INK : C_DIM);
+        label.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        icon.getLayoutParams().width = on ? dp(18) : dp(14);
+        icon.getLayoutParams().height = on ? dp(18) : dp(14);
+        icon.requestLayout();
     }
 
-    private void openCard(LinearLayout body, TextView arrow, TextView hint, String def) {
-        body.setVisibility(View.VISIBLE);
-        arrow.setText("▾");
-        hint.setText(def);
+    private void jumpDiag(int s) {
+        setPage(1);
+        setSeg(s);
     }
 
-    private void closeCard(LinearLayout body, TextView arrow, TextView hint, String def) {
-        body.setVisibility(View.GONE);
-        arrow.setText("▸");
-        Object tag = hint.getTag();
-        String sum = tag instanceof String ? (String) tag : "";
-        hint.setText(sum.length() > 0 ? sum : def);
+    private void setSeg(int s) {
+        seg = s;
+        diagLat.setVisibility(s == 0 ? View.VISIBLE : View.GONE);
+        diagCh.setVisibility(s == 1 ? View.VISIBLE : View.GONE);
+        diagSpeed.setVisibility(s == 2 ? View.VISIBLE : View.GONE);
+        diagDev.setVisibility(s == 3 ? View.VISIBLE : View.GONE);
+        segStyle(segLat, s == 0);
+        segStyle(segCh, s == 1);
+        segStyle(segSpeed, s == 2);
+        segStyle(segDev, s == 3);
     }
 
-    private void setSummary(TextView hint, String s, String def) {
-        hint.setTag(s);
-        if (hint.getText() != null && hint.getText().toString().equals(def)) hint.setText(def);
+    private void segStyle(TextView t, boolean on) {
+        t.setBackgroundResource(on ? R.drawable.seg_on : 0);
+        t.setTextColor(on ? C_INK : C_SUB);
+        t.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
     }
 
-    // ============================================================
-    // 历史记录
-    // ============================================================
-    private static final String KEY_HIST = "hist_v1";
-    private static final String SEP = "\u0001";
-    private static final int HIST_MAX = 20;
+    // ==================== 头部刷新 ====================
+
+    private void refreshHead() {
+        wifi = Net.readWifi(this);
+        gateway = Net.getGatewayIp(this);
+        localIp = Net.getLocalIp(this);
+
+        String name = TextUtils.isEmpty(wifi.ssid) ? "（未连 WiFi 或读不到名称）" : wifi.ssid;
+        tvSsid.setText(name);
+        tvNetMeta.setText(wifi.band + " · " + wifi.rssi + " dBm · 协商 " + wifi.linkMbps + " Mbps");
+        tvRouterIp.setText(TextUtils.isEmpty(gateway) ? "—" : gateway);
+        tvDiagMeta.setText(TextUtils.isEmpty(gateway) ? "—" : gateway + "  ·  本机 " + localIp);
+    }
+
+    // ==================== 一键全检 ====================
+
+    private void runAll() {
+        if (busy) { toast("正在检测，稍等"); return; }
+        if (needScanPermission()) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, REQ_SCAN);
+        }
+        busy = true;
+        btnRun.setEnabled(false);
+        btnRun.setText("检测中…");
+        lastReport = "";
+        statGw = null;
+        statWan = null;
+        chCounts = null;
+        downMbps = -1;
+        upMbps = -1;
+        ringSpeed.setValue(0, "—", "Mbps");
+
+        pool.execute(() -> {
+            refreshHead();
+            final String gw = gateway;
+            final String me = localIp;
+
+            // 1) 延迟
+            status("第 1/4 步：测延迟…");
+            final Net.PingStat g = TextUtils.isEmpty(gw) ? new Net.PingStat()
+                    : Net.pingHost(gw, 8, s -> ui.post(() -> {
+                        tvGwVal.setText(fmt("%.0f ms", s.avg()));
+                        tvLossBig.setText(fmt("%.0f%%", s.loss()));
+                        bandGw.setRatio(Math.min(1, s.avg() / 120.0));
+                    }));
+            final Net.PingStat w = Net.pingHost("223.5.5.5", 8, s -> ui.post(() -> {
+                tvWanVal.setText(fmt("%.0f ms", s.avg()));
+                bandWan.setRatio(Math.min(1, s.avg() / 300.0));
+            }));
+            statGw = g;
+            statWan = w;
+            ui.post(() -> paintLatency(g, w));
+
+            // 2) 信道
+            status("第 2/4 步：扫周边 WiFi…");
+            final int[] cc = new int[13];
+            final int[] r = new int[]{0, -1, -1};
+            try {
+                if (wm != null) {
+                    wm.startScan();
+                    Thread.sleep(2400);
+                    List<ScanResult> rs = wm.getScanResults();
+                    if (rs != null) {
+                        Collections.sort(rs, (a, b2) -> Integer.compare(b2.level, a.level));
+                        final int total = rs.size();
+                        for (int i = 0; i < total; i++) {
+                            ScanResult sr = rs.get(i);
+                            int ch = freqToCh(sr.frequency);
+                            if (ch >= 1 && ch <= 13 && sr.level > -85) cc[ch - 1]++;
+                            r[0]++;
+                        }
+                        int cur = chFromFreq(wifi.freq);
+                        r[1] = cur;
+                        r[2] = bestChannel(cc);
+                        final List<ScanResult> copy = rs;
+                        ui.post(() -> paintAps(copy, cc, cur, r[2]));
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            chCounts = cc;
+            apCount = r[0];
+            curChannel = r[1];
+            sugChannel = r[2];
+
+            // 3) 带宽
+            status("第 3/4 步：测下载…");
+            startPulse();
+            Net.SpeedResult d = Net.measureDownload((done, total, mbps) -> ui.post(() -> {
+                ringSpeed.setRunning(true, mbps, fmt("%.1f", mbps));
+                tvSpeedStatus.setText("已下载 " + fmt("%.1f", done / 1048576.0) + " / " + fmt("%.0f", total / 1048576.0) + " MB");
+            }));
+            stopPulse();
+            downMbps = d.ok ? d.mbps : -1;
+            downMs = d.ok ? d.ms : -1;
+            ui.post(() -> paintDown(d));
+
+            status("第 4/4 步：测上传…");
+            Net.SpeedResult u = Net.measureUpload((done, total, mbps) -> ui.post(() -> {
+                ringSpeed.setRunning(true, mbps, fmt("%.1f", mbps));
+                tvSpeedStatus.setText("已上传 " + fmt("%.1f", done / 1048576.0) + " / " + fmt("%.0f", total / 1048576.0) + " MB");
+            }));
+            upMbps = u.ok ? u.mbps : -1;
+            ui.post(() -> paintUp(u));
+
+            // 4) 设备
+            status("最后一趟：扫局域网设备…");
+            final List<Net.Dev> found = scanLan(gw, me);
+            devices = found;
+            int stray = 0;
+            for (Net.Dev x : found) if (!x.isGw && !x.isMe && "未知设备".equals(x.type)) stray++;
+            strayCount = stray;
+            ui.post(() -> paintDevices(found));
+
+            lastCheckAt = System.currentTimeMillis();
+            ui.post(() -> {
+                paintScore();
+                String sum = sumLine();
+                saveHist("全面体检", sum);
+                busy = false;
+                btnRun.setEnabled(true);
+                btnRun.setText("再测一次");
+                status("");
+                toast("检测完成");
+            });
+        });
+    }
+
+    private void startPulse() {
+        ui.post(new Runnable() {
+            @Override public void run() {
+                ringSpeed.pulse();
+                if (busy) ui.postDelayed(this, 120);
+            }
+        });
+    }
+
+    private void stopPulse() { ringSpeed.pulse(); }
+
+    private void status(String s) { ui.post(() -> tvRunStatus.setText(s)); }
+
+    // ==================== 各页绘制 ====================
+
+    private void paintLatency(Net.PingStat g, Net.PingStat w) {
+        double gv = g.recv == 0 ? -1 : g.avg();
+        double wv = w.recv == 0 ? -1 : w.avg();
+        tvGwVal.setText(gv < 0 ? "超时" : fmt("%.0f ms", gv));
+        tvWanVal.setText(wv < 0 ? "超时" : fmt("%.0f ms", wv));
+        bandGw.setRatio(gv < 0 ? 1 : Math.min(1, gv / 120.0));
+        bandWan.setRatio(wv < 0 ? 1 : Math.min(1, wv / 300.0));
+
+        double jit = Math.max(g.jitter(), w.jitter());
+        double loss = Math.max(g.loss(), w.loss());
+        tvJitter.setText(fmt("%.0f ms", jit));
+        tvLossBig.setText(fmt("%.0f%%", loss));
+
+        boolean firstBad = g.recv == 0 || g.loss() > 15 || g.avg() > 40 || g.jitter() > 60;
+        boolean wanBad = w.loss() > 10 || w.avg() > 120 || w.jitter() > 80;
+
+        if (firstBad) {
+            tint(latVerdictBox, R.drawable.tint_red);
+            tvLatVerdict.setTextColor(C_BAD);
+            tvLatVerdict.setText("卡在手机和路由器之间");
+            tvLatAdvice.setTextColor(0xFF7A3B36);
+            tvLatAdvice.setText("这一跳是你自己能修的：\n1. 拿手机走到路由器 2 米内复测\n2. 路由器后台把 2.4G 信道改成最空的 1/6/11\n3. 能连 5G 就连 5G\n4. 关掉本 App 的电池限制再测一次");
+            tvJitterState.setTextColor(C_BAD);
+            tvJitterState.setText(jit > 60 ? "抖动大" : "");
+        } else if (wanBad) {
+            tint(latVerdictBox, R.drawable.tint_amber);
+            tvLatVerdict.setTextColor(C_WARN);
+            tvLatVerdict.setText("手机到路由器没问题，卡在出网这一段");
+            tvLatAdvice.setTextColor(0xFF7A5410);
+            tvLatAdvice.setText("这段你自己改不了，但能拿数据说话：\n1. 换个时段（晚 8–11 点）再测一次对比\n2. 点「工具 → 复制完整体检报告」发给房东\n3. 房东那条线多半是百兆老套餐或光猫老旧");
+            tvJitterState.setTextColor(C_WARN);
+            tvJitterState.setText(jit > 80 ? "抖动大" : "");
+        } else {
+            tint(latVerdictBox, R.drawable.tint_green);
+            tvLatVerdict.setTextColor(C_OK);
+            tvLatVerdict.setText("两段延迟都正常");
+            tvLatAdvice.setTextColor(0xFF0B6B4C);
+            tvLatAdvice.setText("延迟没问题，那卡就是带宽被占或套餐不够。去看「带宽」和「设备」两项。");
+            tvJitterState.setTextColor(C_OK);
+            tvJitterState.setText(jit <= 30 ? "稳定" : "");
+        }
+        tvLossState.setTextColor(loss > 5 ? C_BAD : C_OK);
+        tvLossState.setText(loss > 5 ? "丢包" : "无丢包");
+
+        tvLatDetail.setText("第一跳 " + gwText(g) + "\n出网    " + gwText(w));
+        tvOvLat.setText(gv < 0 ? "超时" : fmt("%.0f", Math.max(gv, wv < 0 ? gv : wv)));
+        tvOvLatState.setText(firstBad ? "第一跳偏高" : (wanBad ? "出网偏高" : "两段正常"));
+        tvOvLatState.setTextColor(firstBad ? C_BAD : (wanBad ? C_WARN : C_OK));
+        tvOvLoss.setText(fmt("%.0f", loss));
+        tvOvLossState.setText(loss > 5 ? "有丢包" : "无丢包");
+        tvOvLossState.setTextColor(loss > 5 ? C_BAD : C_OK);
+    }
+
+    private String gwText(Net.PingStat s) {
+        if (s.recv == 0) return "全部超时";
+        return fmt("平均 %.0fms  抖动 %.0fms  丢包 %.0f%%", s.avg(), s.jitter(), s.loss());
+    }
+
+    private void paintAps(List<ScanResult> rs, int[] cc, int cur, int sug) {
+        chartCh.setData(cc, cur, sug);
+        tvCurCh.setText(cur > 0 ? String.valueOf(cur) : "—");
+        tvSugCh.setText(sug > 0 ? String.valueOf(sug) : "—");
+        apList.removeAllViews();
+        int show = Math.min(rs.size(), 14);
+        for (int i = 0; i < show; i++) apList.addView(apRow(rs.get(i)));
+
+        int curLoad = (cur >= 1 && cur <= 13) ? cc[cur - 1] : 0;
+        if (sug > 0 && sug != cur) {
+            tint(chVerdictBox, R.drawable.tint_amber);
+            tvChVerdict.setTextColor(C_WARN);
+            tvChVerdict.setText("信道 " + cur + " 上有 " + curLoad + " 个强信号，建议改到 " + sug);
+            tvChAdvice.setTextColor(0xFF7A5410);
+            tvChAdvice.setText("进路由器后台 → 无线设置 → 2.4G 信道 → 选 " + sug + " → 保存重启。\n改完回来再扫一次，看柱子有没有降下来。");
+        } else if (cur > 13) {
+            tint(chVerdictBox, R.drawable.tint_green);
+            tvChVerdict.setTextColor(C_OK);
+            tvChVerdict.setText("当前在 5G 频段，不挤");
+            tvChAdvice.setTextColor(0xFF0B6B4C);
+            tvChAdvice.setText("5G 本来就不拥堵，卡的话去看「带宽」和「设备」。");
+        } else {
+            tint(chVerdictBox, R.drawable.tint_green);
+            tvChVerdict.setTextColor(C_OK);
+            tvChVerdict.setText("当前信道 " + cur + " 已经是最空的");
+            tvChAdvice.setTextColor(0xFF0B6B4C);
+            tvChAdvice.setText("不用改信道了。信号格数少的话，换个位置或拉近路由器。");
+        }
+    }
+
+    private void paintDown(Net.SpeedResult d) {
+        if (d.ok) {
+            ringSpeed.setValue(d.mbps, fmt("%.1f", d.mbps), "Mbps 下行");
+            tvDownVal.setText(fmt("%.1f Mbps", d.mbps));
+            bandDown.setRatio(Math.min(1, d.mbps / 60.0));
+            tvCostVal.setText(fmt("%.1f 秒", d.ms / 1000.0));
+            bandCost.setRatio(Math.min(1, d.ms / 15000.0));
+            tvSpeedStatus.setText(fmt("下载 %.1f Mbps · 用时 %.1f 秒", d.mbps, d.ms / 1000.0));
+            tint(speedVerdictBox, d.mbps < 8 ? R.drawable.tint_red : (d.mbps < 25 ? R.drawable.tint_amber : R.drawable.tint_green));
+            tvSpeedVerdict.setTextColor(d.mbps < 8 ? C_BAD : (d.mbps < 25 ? C_WARN : C_OK));
+            tvSpeedVerdict.setText(d.mbps < 8 ? "带宽严重不足" : (d.mbps < 25 ? "带宽偏低" : "带宽够用"));
+            tvSpeedAdvice.setTextColor(d.mbps < 8 ? 0xFF7A3B36 : (d.mbps < 25 ? 0xFF7A5410 : 0xFF0B6B4C));
+            tvSpeedAdvice.setText(d.mbps < 8
+                    ? "10 Mbps 以下：1080p 都卡。先看是不是有人在下片/挂机，再拿数据找房东。"
+                    : (d.mbps < 25 ? "25 Mbps 以下：看 1080p 勉强，多人同时用就卡。尽量错峰。"
+                    : "够看 4K。卡的话不是带宽问题，去看「设备」那一项。"));
+            tvOvDown.setText(fmt("%.1f", d.mbps));
+            tvOvDownState.setText(d.mbps < 8 ? "严重不足" : (d.mbps < 25 ? "偏低" : "够用"));
+            tvOvDownState.setTextColor(d.mbps < 8 ? C_BAD : (d.mbps < 25 ? C_WARN : C_OK));
+        } else {
+            ringSpeed.setValue(0, "—", "失败");
+            tvSpeedStatus.setText("下载没测出来：" + Net.errHint(d.err));
+            tvDownVal.setText("失败");
+            tvOvDown.setText("—");
+            tvOvDownState.setText("测不出");
+            tvOvDownState.setTextColor(C_BAD);
+        }
+    }
+
+    private void paintUp(Net.SpeedResult u) {
+        if (u.ok) {
+            tvUpVal.setText(fmt("%.1f Mbps", u.mbps));
+            bandUp.setRatio(Math.min(1, u.mbps / 30.0));
+            if (downMbps > 0) tvSpeedStatus.setText(fmt("下行 %.1f · 上行 %.1f Mbps", downMbps, u.mbps));
+        } else {
+            tvUpVal.setText("失败");
+        }
+    }
+
+    private void paintDevices(List<Net.Dev> list) {
+        devList.removeAllViews();
+        int known = 0;
+        for (Net.Dev d : list) if (!"未知设备".equals(d.type)) known++;
+        tvDevTotal.setText(String.valueOf(list.size()));
+        tvDevKnown.setText(String.valueOf(known));
+        tvDevUnknown.setText(String.valueOf(strayCount));
+
+        LinearLayout row = null;
+        for (int i = 0; i < list.size(); i++) {
+            if (i % 2 == 0) {
+                row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = dp(8);
+                row.setLayoutParams(lp);
+                devList.addView(row);
+            }
+            View card = devCard(list.get(i));
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            if (i % 2 == 1) cp.leftMargin = dp(8);
+            card.setLayoutParams(cp);
+            row.addView(card);
+        }
+
+        tvOvDev.setText(String.valueOf(list.size()));
+        tvOvDevState.setText(strayCount == 0 ? "全部认识" : (strayCount + " 台陌生"));
+        tvOvDevState.setTextColor(strayCount == 0 ? C_OK : C_BAD);
+
+        if (strayCount == 0) {
+            tint(devVerdictBox, R.drawable.tint_green);
+            tvDevVerdict.setTextColor(C_OK);
+            tvDevVerdict.setText("没有陌生设备");
+            tvDevAdvice.setTextColor(0xFF0B6B4C);
+            tvDevAdvice.setText("在线设备都认得出。如果还是卡，问题不在蹭网，去看「带宽」。");
+        } else {
+            tint(devVerdictBox, R.drawable.tint_amber);
+            tvDevVerdict.setTextColor(C_WARN);
+            tvDevVerdict.setText("有 " + strayCount + " 台认不出来的设备");
+            tvDevAdvice.setTextColor(0xFF7A5410);
+            tvDevAdvice.setText("点「工具 → 打开路由器后台」→ 找「已连接设备 / DHCP 客户端」→ 对上 IP 拉黑。\nAndroid 10 以后系统不让 App 读别人的 MAC，所以有些行看起来是「未知设备」，路由后台能看到完整信息。");
+        }
+    }
+
+    private View devCard(Net.Dev d) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackgroundResource(R.drawable.card);
+        c.setPadding(dp(11), dp(11), dp(11), dp(11));
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView icon = new TextView(this);
+        String code = Net.typeIcon(d.type);
+        icon.setText(code);
+        icon.setTextSize(10);
+        icon.setTextColor(0xFFFFFFFF);
+        icon.setTypeface(null, android.graphics.Typeface.BOLD);
+        icon.setGravity(Gravity.CENTER);
+        icon.setBackgroundResource(d.isGw ? R.drawable.dot_blue
+                : ("未知设备".equals(d.type) ? R.drawable.dot_red : R.drawable.dot_green));
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(24), dp(24));
+        icon.setLayoutParams(ilp);
+        top.addView(icon);
+
+        TextView name = new TextView(this);
+        name.setText(d.type);
+        name.setTextSize(12);
+        name.setTextColor(C_INK);
+        name.setTypeface(null, android.graphics.Typeface.BOLD);
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        nlp.leftMargin = dp(7);
+        name.setLayoutParams(nlp);
+        top.addView(name);
+        c.addView(top);
+
+        TextView ip = new TextView(this);
+        ip.setText(d.ip);
+        ip.setTextSize(10);
+        ip.setTypeface(android.graphics.Typeface.MONOSPACE);
+        ip.setTextColor(C_DIM);
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        plp.topMargin = dp(6);
+        ip.setLayoutParams(plp);
+        c.addView(ip);
+
+        String sub = !TextUtils.isEmpty(d.vendor) ? d.vendor
+                : (!TextUtils.isEmpty(d.host) ? d.host : "厂商读不到");
+        TextView vd = new TextView(this);
+        vd.setText(sub);
+        vd.setTextSize(10);
+        vd.setTextColor(C_FAINT);
+        vd.setSingleLine(true);
+        vd.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        vlp.topMargin = dp(2);
+        vd.setLayoutParams(vlp);
+        c.addView(vd);
+        return c;
+    }
+
+    private View apRow(ScanResult r) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(7);
+        row.setLayoutParams(lp);
+
+        TextView nm = new TextView(this);
+        nm.setText(TextUtils.isEmpty(r.SSID) ? "(隐藏)" : r.SSID);
+        nm.setTextSize(11);
+        nm.setTextColor(C_INK);
+        nm.setSingleLine(true);
+        nm.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        nm.setLayoutParams(nlp);
+        row.addView(nm);
+
+        int ch = freqToCh(r.frequency);
+        TextView meta = new TextView(this);
+        meta.setText((ch > 13 ? "5G" : "ch" + ch) + " · " + r.level + "dBm");
+        meta.setTextSize(10);
+        meta.setTypeface(android.graphics.Typeface.MONOSPACE);
+        meta.setTextColor(r.level > -60 ? C_OK : (r.level > -75 ? C_SUB : C_FAINT));
+        row.addView(meta);
+        return row;
+    }
+
+    // ==================== 分数 ====================
+
+    private void paintScore() {
+        double gwAvg = statGw == null || statGw.recv == 0 ? 300 : statGw.avg();
+        double wanAvg = statWan == null || statWan.recv == 0 ? 300 : statWan.avg();
+        double avg = Math.max(gwAvg, wanAvg);
+        double loss = Math.max(statGw == null ? 0 : statGw.loss(), statWan == null ? 0 : statWan.loss());
+
+        int sLat = clampScore(avg, 20, 200);
+        int sLoss = clampScore(loss, 0, 20);
+        int sDown = downMbps < 0 ? 0 : clampScoreInv(downMbps, 5, 50);
+        int sDev = strayCount == 0 ? 25 : (strayCount == 1 ? 17 : (strayCount == 2 ? 8 : 0));
+
+        lastScore = sLat + sLoss + sDown + sDev;
+        ringScore.setScore(lastScore);
+        tvScoreBreak.setText("延迟 " + sLat + "/25 · 丢包 " + sLoss + "/25 · 带宽 " + sDown + "/25 · 设备 " + sDev + "/25");
+
+        String tag, v, sub;
+        int bg, fg;
+        if (lastScore >= 75) {
+            tag = "状态良好"; v = "网没问题"; bg = R.drawable.badge_soft; fg = 0xFF0E9F6E;
+            sub = "四项都在正常范围。还卡就是具体服务或设备的事。";
+        } else if (lastScore >= 50) {
+            tag = "需要优化"; v = "能用但偏弱"; bg = R.drawable.tint_amber; fg = 0xFFB45309;
+            sub = "有一项拖后腿，点下面四张卡看是哪一项。";
+        } else {
+            tag = "问题明显"; v = "有明显短板"; bg = R.drawable.tint_red; fg = 0xFFB3261E;
+            sub = "按下面四张卡的结论逐条处理，优先看红色的那张。";
+        }
+        tvTag.setText(tag);
+        tvTag.setTextColor(fg);
+        tvTag.setBackgroundResource(bg);
+        tvVerdict.setText(v);
+        tvVerdictSub.setText(sub);
+        lastReport = buildReport();
+    }
+
+    /** 越小越好：lo 分以下满分 25，hi 以上 0 分。 */
+    private int clampScore(double v, double lo, double hi) {
+        if (v <= lo) return 25;
+        if (v >= hi) return 0;
+        return (int) Math.round(25 * (hi - v) / (hi - lo));
+    }
+
+    /** 越大越好：lo 以下 0 分，hi 以上满分 25。 */
+    private int clampScoreInv(double v, double lo, double hi) {
+        if (v <= lo) return 0;
+        if (v >= hi) return 25;
+        return (int) Math.round(25 * (v - lo) / (hi - lo));
+    }
+
+    private String sumLine() {
+        return fmt("总分 %d · 延迟 %s · 下行 %s · 设备 %d 台",
+                lastScore,
+                statWan == null || statWan.recv == 0 ? "超时" : fmt("%.0fms", statWan.avg()),
+                downMbps < 0 ? "失败" : fmt("%.1fMbps", downMbps),
+                devices == null ? 0 : devices.size());
+    }
+
+    private String buildReport() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【出租屋 WiFi 体检报告】\n");
+        sb.append(new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(new Date())).append("\n\n");
+        sb.append("WiFi：").append(wifi.ssid).append("  ").append(wifi.band)
+                .append("  ").append(wifi.rssi).append(" dBm\n");
+        sb.append("网关：").append(gateway).append("   本机：").append(localIp).append("\n");
+        sb.append("总分：").append(lastScore).append("/100\n\n");
+
+        sb.append("—— 延迟 ——\n");
+        sb.append("第一跳（手机→路由器）：").append(statGw == null ? "无数据" : gwText(statGw)).append("\n");
+        sb.append("出网（手机→外网）：").append(statWan == null ? "无数据" : gwText(statWan)).append("\n");
+        sb.append(tvLatVerdict.getText()).append("\n\n");
+
+        sb.append("—— 信道 ——\n");
+        sb.append("当前信道：").append(curChannel > 0 ? curChannel : "未知")
+                .append("   建议：").append(sugChannel > 0 ? sugChannel : "—")
+                .append("   周边 AP：").append(apCount).append(" 个\n");
+        sb.append(tvChVerdict.getText()).append("\n\n");
+
+        sb.append("—— 带宽 ——\n");
+        sb.append("下行：").append(downMbps < 0 ? "失败" : fmt("%.1f Mbps", downMbps)).append("\n");
+        sb.append("上行：").append(upMbps < 0 ? "失败" : fmt("%.1f Mbps", upMbps)).append("\n");
+        sb.append(tvSpeedVerdict.getText()).append("\n\n");
+
+        sb.append("—— 设备 ——\n");
+        sb.append("在线 ").append(devices == null ? 0 : devices.size()).append(" 台，陌生 ").append(strayCount).append(" 台\n");
+        if (devices != null) {
+            for (Net.Dev d : devices) {
+                sb.append("  ").append(d.ip).append("  ").append(d.type);
+                if (!TextUtils.isEmpty(d.vendor)) sb.append("  ").append(d.vendor);
+                sb.append("\n");
+            }
+        }
+        sb.append(tvDevVerdict.getText()).append("\n\n");
+        sb.append("—— 一句话 ——\n");
+        sb.append("满格还慢=带宽问题；格少还慢=信号问题。\n");
+        return sb.toString();
+    }
+
+    // ==================== 历史 ====================
 
     private SharedPreferences prefs() {
-        return getSharedPreferences("wifiscan", MODE_PRIVATE);
+        return getSharedPreferences(PREF, MODE_PRIVATE);
     }
 
-    private void saveHist(String kind, String summary, String full) {
-        try {
-            String old = prefs().getString(KEY_HIST, "");
-            List<String> recs = new ArrayList<>();
-            if (old != null && old.length() > 0) {
-                String[] arr = old.split(SEP);
-                for (String s : arr) {
-                    if (s != null && s.trim().length() > 0) recs.add(s);
-                }
-                if (recs.size() > 200) recs = recs.subList(0, 200);
-            }
-            StringBuilder one = new StringBuilder();
-            one.append(System.currentTimeMillis()).append('|')
-                    .append(kind).append('|')
-                    .append(summary).append('|')
-                    .append(full);
-            List<String> out = new ArrayList<>();
-            out.add(one.toString());
-            for (String s : recs) {
-                if (out.size() >= HIST_MAX) break;
-                out.add(s);
-            }
-            StringBuilder joined = new StringBuilder();
-            for (String s : out) {
-                if (joined.length() > 0) joined.append(SEP);
-                joined.append(s);
-            }
-            prefs().edit().putString(KEY_HIST, joined.toString()).apply();
-            loadHistory();
-        } catch (Exception ignored) { }
+    private void saveHist(String kind, String sum) {
+        String rep = lastReport == null ? "" : lastReport.replace("\n", "\\n").replace("|", "/");
+        String one = System.currentTimeMillis() + "|" + kind + "|" + sum.replace("|", "/") + "|" + rep;
+        String all = prefs().getString(K_HIST, "");
+        List<String> items = new ArrayList<>();
+        if (!all.isEmpty()) for (String s : all.split(SEP)) if (!s.isEmpty()) items.add(s);
+        items.add(0, one);
+        while (items.size() > HIST_MAX) items.remove(items.size() - 1);
+        prefs().edit().putString(K_HIST, TextUtils.join(SEP, items)).apply();
+        loadHistory();
     }
 
     private void loadHistory() {
         histList.removeAllViews();
-        String old = prefs().getString(KEY_HIST, "");
-        if (old == null || old.trim().length() == 0) {
-            tvHistEmpty.setVisibility(View.VISIBLE);
-            hintHist.setTag("");
-            hintHist.setText(HINT_HIST);
-            return;
-        }
-        List<String> recs = new ArrayList<>();
-        for (String s : old.split(SEP)) {
-            if (s != null && s.trim().length() > 0) recs.add(s);
-        }
-        tvHistEmpty.setVisibility(recs.isEmpty() ? View.VISIBLE : View.GONE);
-        int shown = 0;
-        for (String r : recs) {
-            String[] p = r.split("\\|", 4);
-            if (p.length < 4) continue;
+        String all = prefs().getString(K_HIST, "");
+        List<String> items = new ArrayList<>();
+        if (!all.isEmpty()) for (String s : all.split(SEP)) if (!s.isEmpty()) items.add(s);
+        tvHistEmpty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
+        SimpleDateFormat df = new SimpleDateFormat("MM-dd HH:mm", Locale.CHINA);
+        for (String it : items) {
+            String[] p = it.split("\\|", 4);
+            if (p.length < 3) continue;
             long t;
-            try { t = Long.parseLong(p[0]); } catch (Exception e) { continue; }
-            addHistRow(t, p[1], p[2], p[3]);
-            shown++;
+            try { t = Long.parseLong(p[0]); } catch (Exception e) { t = 0; }
+            histList.addView(histRow(df.format(new Date(t)), p[1], p[2],
+                    p.length > 3 ? p[3].replace("\\n", "\n") : ""));
         }
-        if (shown == 0) tvHistEmpty.setVisibility(View.VISIBLE);
-        hintHist.setTag(shown > 0 ? ("最近 " + shown + " 条，点开看详情") : "");
     }
 
-    private void addHistRow(final long time, String kind, String summary, final String full) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setBackgroundResource(R.drawable.inner_white);
-        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+    private View histRow(String time, String kind, String sum, String full) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackgroundResource(R.drawable.card);
+        c.setPadding(dp(13), dp(12), dp(13), dp(12));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.bottomMargin = dp(8);
-        row.setLayoutParams(lp);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(8);
+        c.setLayoutParams(lp);
 
-        String when;
-        try {
-            when = new SimpleDateFormat("MM-dd HH:mm", Locale.US).format(new Date(time));
-        } catch (Exception e) {
-            when = "--";
-        }
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView head = new TextView(this);
-        head.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        head.setTextColor(0xFF4A4453);
-        head.setText(when + "  ·  " + kind + "\n" + summary);
-        head.setLineSpacing(dp(3), 1f);
-        row.addView(head);
+        TextView k = new TextView(this);
+        k.setText(kind);
+        k.setTextSize(13);
+        k.setTextColor(C_INK);
+        k.setTypeface(null, android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams klp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        k.setLayoutParams(klp);
+        top.addView(k);
 
-        final TextView detail = new TextView(this);
-        detail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        detail.setTextColor(0xFF5A5462);
+        TextView tm = new TextView(this);
+        tm.setText(time);
+        tm.setTextSize(10);
+        tm.setTypeface(android.graphics.Typeface.MONOSPACE);
+        tm.setTextColor(C_FAINT);
+        top.addView(tm);
+        c.addView(top);
+
+        TextView sm = new TextView(this);
+        sm.setText(sum);
+        sm.setTextSize(11);
+        sm.setTextColor(C_SUB);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.topMargin = dp(5);
+        sm.setLayoutParams(slp);
+        c.addView(sm);
+
+        TextView detail = new TextView(this);
         detail.setText(full);
-        detail.setPadding(0, dp(8), 0, 0);
-        detail.setLineSpacing(dp(3), 1f);
-        detail.setTextIsSelectable(true);
+        detail.setTextSize(10);
+        detail.setTypeface(android.graphics.Typeface.MONOSPACE);
+        detail.setTextColor(C_DIM);
+        detail.setLineSpacing(dp(2), 1f);
         detail.setVisibility(View.GONE);
-        row.addView(detail);
+        detail.setTextIsSelectable(true);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dlp.topMargin = dp(8);
+        detail.setLayoutParams(dlp);
+        c.addView(detail);
 
-        head.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                detail.setVisibility(detail.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+        c.setOnClickListener(v -> detail.setVisibility(
+                detail.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
+        return c;
+    }
+
+    // ==================== 复制 ====================
+
+    private void copy() {
+        if (TextUtils.isEmpty(lastReport)) { toast("先跑一次检测"); return; }
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("wifi-report", lastReport));
+        toast("报告已复制，直接发给房东");
+    }
+
+    // ==================== 工具方法 ====================
+
+    private List<Net.Dev> scanLan(String gw, String me) {
+        final List<Net.Dev> out = new ArrayList<>();
+        if (TextUtils.isEmpty(gw)) return out;
+        String base = Net.subnetBase(gw);
+        if (TextUtils.isEmpty(base)) return out;
+
+        final List<String> live = Collections.synchronizedList(new ArrayList<>());
+        final int[] done = {0};
+        ExecutorService p = Executors.newFixedThreadPool(40);
+        for (int i = 1; i <= 254; i++) {
+            final String ip = base + "." + i;
+            p.execute(() -> {
+                if (Net.pingOnce(ip)) live.add(ip);
+                done[0]++;
+                if (done[0] % 25 == 0) status("已扫 " + done[0] + "/254…");
+            });
+        }
+        p.shutdown();
+        try { p.awaitTermination(40, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignored) {}
+
+        java.util.Map<String, String> arp = Net.readArp();
+        for (String ip : new ArrayList<>(live)) {
+            if (!arp.containsKey(ip)) arp.put(ip, "");
+        }
+        List<String> ips = new ArrayList<>(arp.keySet());
+        Collections.sort(ips, (a, b) -> Integer.compare(Net.ipInt(a), Net.ipInt(b)));
+
+        ExecutorService idp = Executors.newFixedThreadPool(12);
+        for (String ip : ips) {
+            idp.execute(() -> {
+                Net.Dev d = new Net.Dev();
+                d.ip = ip;
+                d.mac = arp.get(ip) == null ? "" : arp.get(ip);
+                d.isGw = ip.equals(gw);
+                d.isMe = ip.equals(me);
+                Set<Integer> open = Net.probePorts(ip);
+                d.ttl = Net.pingTtl(ip);
+                d.host = Net.resolveHost(ip);
+                d.vendor = Net.ouiVendor(d.mac);
+                d.type = Net.inferType(d, open);
+                if (open != null && !open.isEmpty()) {
+                    StringBuilder sb = new StringBuilder();
+                    for (Integer x : open) { if (sb.length() > 0) sb.append(","); sb.append(x); }
+                    d.ports = sb.toString();
+                    if (open.contains(80)) {
+                        String t = Net.httpTitle(ip, 80);
+                        if (!TextUtils.isEmpty(t) && TextUtils.isEmpty(d.vendor)) d.vendor = t;
+                    }
+                }
+                out.add(d);
+            });
+        }
+        idp.shutdown();
+        try { idp.awaitTermination(35, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignored) {}
+
+        Collections.sort(out, new Comparator<Net.Dev>() {
+            @Override public int compare(Net.Dev a, Net.Dev b) {
+                if (a.isGw != b.isGw) return a.isGw ? -1 : 1;
+                if (a.isMe != b.isMe) return a.isMe ? -1 : 1;
+                boolean au = "未知设备".equals(a.type), bu = "未知设备".equals(b.type);
+                if (au != bu) return au ? 1 : -1;
+                return Integer.compare(Net.ipInt(a.ip), Net.ipInt(b.ip));
             }
         });
-        histList.addView(row);
+        return out;
     }
 
-    // ============================================================
-    // ① 一键体检 —— 实时流式 ping
-    // ============================================================
-    private void startCheck() {
-        if (busyCheck) { toast("体检正在跑，等一下"); return; }
-        busyCheck = true;
-        openCard(bodyCheck, arrowCheck, hintCheck, HINT_CHECK);
-        pbCheck.setIndeterminate(false);
-        pbCheck.setMax(16);
-        pbCheck.setProgress(0);
-        statusCheck.setText("");
-        resultCheck.setText("");
-        scrollTo(cardCheck);
-
-        new Thread(new Runnable() {
-            public void run() {
-                long t0 = System.currentTimeMillis();
-                final String gw = gwIp == null || gwIp.length() == 0 ? "" : gwIp;
-
-                if (gw.length() == 0) {
-                    ui.post(new Runnable() {
-                        public void run() {
-                            statusCheck.setText("没读到网关 IP —— 可能没连上 WiFi");
-                        }
-                    });
-                }
-                if (gw.length() > 0) {
-                    ui.post(new Runnable() {
-                        public void run() { statusCheck.setText("第 1 段：手机 → 路由器 (" + gw + ")，发 8 个包…"); }
-                    });
-                    final PingStat g = pingHost(gw, 8, new PingView() {
-                        public void onTick(PingStat s) {
-                            final String t = "第 1 段 手机→路由器：" + s.recv + "/" + s.count
-                                    + " 包已回，当前 " + String.format(Locale.US, "%.0f", s.last) + " ms";
-                            final int p = s.recv;
-                            ui.post(new Runnable() {
-                                public void run() {
-                                    statusCheck.setText(t);
-                                    pbCheck.setProgress(Math.min(8, p));
-                                }
-                            });
-                        }
-                    });
-
-                    ui.post(new Runnable() {
-                        public void run() { statusCheck.setText("第 2 段：手机 → 外网 (223.5.5.5)，发 8 个包…"); }
-                    });
-                    final PingStat p = pingHost("223.5.5.5", 8, new PingView() {
-                        public void onTick(PingStat s) {
-                            final String t = "第 2 段 手机→外网：" + s.recv + "/" + s.count
-                                    + " 包已回，当前 " + String.format(Locale.US, "%.0f", s.last) + " ms";
-                            final int pr = 8 + s.recv;
-                            ui.post(new Runnable() {
-                                public void run() {
-                                    statusCheck.setText(t);
-                                    pbCheck.setProgress(Math.min(16, pr));
-                                }
-                            });
-                        }
-                    });
-
-                    final WifiBrief wb = readWifi();
-                    final long cost = System.currentTimeMillis() - t0;
-                    final String rep = buildCheckReport(gw, g, p, wb, cost);
-                    reportCheck = rep;
-
-                    final String sum = String.format(Locale.US,
-                            "第一跳 %.0fms / 出网 %.0fms", g.avg(), p.avg());
-                    ui.post(new Runnable() {
-                        public void run() {
-                            statusCheck.setText("体检完成，用时 " + (cost / 1000.0) + " 秒");
-                            pbCheck.setProgress(16);
-                            resultCheck.setText(rep);
-                            setSummary(hintCheck, sum, HINT_CHECK);
-                            hintCheck.setText(sum);
-                            saveHist("一键体检", sum, rep);
-                        }
-                    });
-                } else {
-                    final String rep = "读不到网关地址。先确认手机连的是房东的 WiFi，而不是流量。";
-                    reportCheck = rep;
-                    ui.post(new Runnable() {
-                        public void run() {
-                            statusCheck.setText("体检中断");
-                            resultCheck.setText(rep);
-                            hintCheck.setText("没连上 WiFi");
-                        }
-                    });
-                }
-                busyCheck = false;
-            }
-        }).start();
-    }
-
-    private String buildCheckReport(String gw, PingStat g, PingStat p, WifiBrief wb, long cost) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("网关 ").append(gw).append("    本机 ").append(myIp).append("\n");
-        sb.append(String.format(Locale.US,
-                "第1段 手机→路由器：回%d/%d  平均%.0fms  抖动%.0fms  丢包%.0f%%\n",
-                g.recv, g.count, g.avg(), g.jitter(), g.loss()));
-        sb.append(String.format(Locale.US,
-                "第2段 手机→外网：  回%d/%d  平均%.0fms  抖动%.0fms  丢包%.0f%%\n",
-                p.recv, p.count, p.avg(), p.jitter(), p.loss()));
-        if (wb != null) {
-            sb.append(String.format(Locale.US,
-                    "信号 %d dBm   频段 %s   连接速率 %d Mbps\n",
-                    wb.rssi, wb.band, wb.linkMbps));
-        }
-        sb.append("\n");
-
-        double gLoss = g.loss(), pLoss = p.loss();
-        boolean firstHopBad = g.recv == 0 || gLoss > 15 || g.avg() > 40 || g.jitter() > 60;
-        boolean wanBad = pLoss > 10 || p.avg() > 120 || p.jitter() > 80;
-
-        if (firstHopBad) {
-            sb.append("结论：手机 ↔ 路由器这一跳就不行。\n");
-            sb.append("这类卡顿是你自己能修的，跟运营商无关。\n\n");
-            sb.append("按顺序试：\n");
-            sb.append("1. 走到路由器 2 米内再测一遍。若明显变好 = 隔墙/距离问题，换个位置或加个中继。\n");
-            sb.append("2. 点「② 周边 WiFi 拥堵」看信道。2.4G 上 5、6、7、8 这几个数是挤在一起的，\n");
-            sb.append("   周围有 5 个以上强信号占着 6 信道，就进路由后台把 2.4G 改成 1 或 11。\n");
-            sb.append("3. 手机支持 5G 就连 5G（点「📶 打开 WiFi 设置」看有没有 -5G 的名字）。\n");
-            sb.append("   5G 穿墙差但没人抢，隔一堵墙通常还是比 2.4G 快。\n");
-            sb.append("4. 点「🔋 关掉电池限制」，防止锁屏后 WiFi 被系统掐。\n");
-            sb.append("5. 还不行就点「🔧 打开路由器后台」，看「已连接设备」里有没有你不认识的，禁掉。\n");
-        } else if (wanBad) {
-            sb.append("结论：手机到路由器很干净，问题在路由器往外这一段。\n");
-            sb.append("这一段你改不了，但可以拿出证据去谈。\n\n");
-            sb.append("先排除自己：\n");
-            sb.append("1. 点「③ 测网速」看真实带宽。若只有几 Mbps，而房东说是 100M/200M，那就是被分掉了。\n");
-            sb.append("2. 点「④ 谁在连这个 WiFi」看有几台设备在连。十几台同时在线，带宽必然被瓜分。\n");
-            sb.append("3. 高峰时段（晚 8–11 点）再测一次。白天快、晚上慢 = 整栋楼在共享一条线。\n\n");
-            sb.append("跟房东讲的时候别说「网慢」，直接给这三个数：\n");
-            sb.append("晚 9 点实测下行 __ Mbps，房东说这条线是 __ Mbps；\n");
-            sb.append("延迟 __ ms，丢包 __%；同一时间连着的设备 __ 台。\n");
-            sb.append("（把这几项填上，比说一百句「卡」有用）\n");
-        } else {
-            sb.append("结论：两段延迟都正常，卡的原因是带宽不够，不是信号也不是线路。\n");
-            sb.append("也就是说 ping 很漂亮，但一开视频/下载就卡。\n\n");
-            sb.append("1. 点「③ 测网速」确认下行。低于 8 Mbps 基本没法看高清；\n");
-            sb.append("   25 Mbps 以上才算够用；低于 25 就是套餐/分流问题。\n");
-            sb.append("2. 点「④ 谁在连这个 WiFi」看是不是有人在下东西/挂机。\n");
-            sb.append("3. 路由器如果还是老 2.4G 单频，瓶颈就在路由器本身，让房东换。\n");
-        }
-        sb.append("\n（体检总耗时 ").append(cost / 1000.0).append(" 秒）");
-        return sb.toString();
-    }
-
-    // ============================================================
-    // ② 扫周边 WiFi
-    // ============================================================
-    private void requestScan() {
-        if (busyScan) { toast("正在扫，等一下"); return; }
-        if (ContextCompat.checkSelfPermission(this,
-                Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 7);
-            toast("请允许定位权限，扫描周边 WiFi 才能读到列表");
-            openCard(bodyScan, arrowScan, hintScan, HINT_SCAN);
-            statusScan.setText("需要定位权限");
-            return;
-        }
-        startScan();
-    }
-
-    private void startScan() {
-        busyScan = true;
-        openCard(bodyScan, arrowScan, hintScan, HINT_SCAN);
-        pbScan.setIndeterminate(true);
-        apList.removeAllViews();
-        statusScan.setText("");
-        resultScan.setText("");
-        scrollTo(cardScan);
-
-        final WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-        new Thread(new Runnable() {
-            public void run() {
-                ui.post(new Runnable() {
-                    public void run() { statusScan.setText("正在扫描周边 WiFi…"); }
-                });
-                if (wm != null) {
-                    try { wm.startScan(); } catch (Exception ignored) { }
-                }
-                try { Thread.sleep(2200); } catch (InterruptedException ignored) { }
-
-                List<ScanResult> rs = null;
-                if (wm != null) {
-                    try { rs = wm.getScanResults(); } catch (Exception ignored) { }
-                }
-                final List<ScanResult> list = rs == null ? new ArrayList<ScanResult>() : rs;
-                Collections.sort(list, new Comparator<ScanResult>() {
-                    public int compare(ScanResult a, ScanResult b) {
-                        return b.level - a.level;
-                    }
-                });
-
-                if (list.isEmpty()) {
-                    final String rep = "没扫到任何 AP。可能是系统限制了扫描频率，等 30 秒再点一次；"
-                            + "或定位权限/定位开关没开。";
-                    reportScan = rep;
-                    ui.post(new Runnable() {
-                        public void run() {
-                            pbScan.setIndeterminate(false);
-                            pbScan.setMax(100);
-                            pbScan.setProgress(100);
-                            statusScan.setText("扫描结束，0 个");
-                            resultScan.setText(rep);
-                            hintScan.setText("没扫到 AP，检查定位权限");
-                        }
-                    });
-                    busyScan = false;
-                    return;
-                }
-
-                final int[] chCount = new int[15];
-                int n24 = 0, n5 = 0;
-                for (ScanResult r : list) {
-                    if (r.frequency > 4000) n5++;
-                    else {
-                        n24++;
-                        if (r.frequency >= 2412 && r.frequency <= 2484) {
-                            int ch = (r.frequency - 2407) / 5;
-                            if (ch >= 1 && ch <= 14) chCount[ch]++;
-                        }
-                    }
-                }
-
-                for (int i = 0; i < list.size(); i++) {
-                    final ScanResult r = list.get(i);
-                    final int idx = i + 1;
-                    final int total = list.size();
-                    ui.post(new Runnable() {
-                        public void run() {
-                            addApRow(r);
-                            pbScan.setIndeterminate(false);
-                            pbScan.setMax(total);
-                            pbScan.setProgress(idx);
-                            statusScan.setText("已扫到 " + idx + "/" + total + " 个");
-                        }
-                    });
-                }
-
-                StringBuilder sb = new StringBuilder();
-                sb.append("共 ").append(list.size()).append(" 个 AP：2.4G ").append(n24)
-                        .append(" 个，5G ").append(n5).append(" 个\n");
-                sb.append("2.4G 各信道被占用情况：\n");
-                int best = 1;
-                for (int c = 1; c <= 13; c++) {
-                    if (chCount[c] == 0) continue;
-                    sb.append("  信道 ").append(c).append("：").append(bar(chCount[c])).append(" ")
-                            .append(chCount[c]).append(" 个\n");
-                }
-                int bestVal = 999;
-                for (int c : new int[]{1, 6, 11}) {
-                    if (chCount[c] < bestVal) { bestVal = chCount[c]; best = c; }
-                }
-                sb.append("\n建议把路由器 2.4G 信道改成 ").append(best)
-                        .append("（1/6/11 里最空的，相互不重叠）\n");
-                if (n5 > 0) {
-                    sb.append("周围有 5G 信号，能连 5G 就优先连 5G。\n");
-                }
-                final String rep = sb.toString();
-                reportScan = rep;
-                final int bestCh = best;
-
-                ui.post(new Runnable() {
-                    public void run() {
-                        pbScan.setIndeterminate(false);
-                        pbScan.setMax(list.size());
-                        pbScan.setProgress(list.size());
-                        statusScan.setText("扫描完成，" + list.size() + " 个 AP");
-                        resultScan.setText(rep);
-                        String sum = list.size() + " 个 AP，建议信道 " + bestCh;
-                        setSummary(hintScan, sum, HINT_SCAN);
-                        hintScan.setText(sum);
-                        saveHist("周边 WiFi", sum, rep);
-                    }
-                });
-                busyScan = false;
-            }
-        }).start();
-    }
-
-    private String bar(int n) {
-        StringBuilder b = new StringBuilder();
-        for (int i = 0; i < Math.min(n, 12); i++) b.append("█");
-        return b.toString();
-    }
-
-    private void addApRow(ScanResult r) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setBackgroundResource(R.drawable.inner_white);
-        int pad = dp(10);
-        row.setPadding(pad, dp(8), pad, dp(8));
-        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        rp.bottomMargin = dp(6);
-        row.setLayoutParams(rp);
-
-        String band = r.frequency > 4000 ? "5G" : "2.4G";
-        int ch = r.frequency > 4000 ? (r.frequency - 5000) / 5 : (r.frequency - 2407) / 5;
-        String cap = (r.capabilities != null && r.capabilities.contains("WPA3")) ? "WPA3"
-                : (r.capabilities != null && r.capabilities.contains("WPA2")) ? "WPA2"
-                : (r.capabilities != null && r.capabilities.contains("WPA")) ? "WPA" : "开放";
-        int q = Math.max(0, Math.min(100, 2 * (r.level + 100)));
-
-        TextView t = new TextView(this);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        t.setTextColor(0xFF5E3325);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setText(r.SSID == null || r.SSID.length() == 0 ? "(隐藏网络)" : r.SSID);
-        row.addView(t);
-
-        LinearLayout line = new LinearLayout(this);
-        line.setOrientation(LinearLayout.HORIZONTAL);
-        line.setGravity(Gravity.CENTER_VERTICAL);
-        line.setPadding(0, dp(5), 0, 0);
-
-        ProgressBar pb = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        pb.setMax(100);
-        pb.setProgress(q);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(120), dp(9));
-        lp.rightMargin = dp(10);
-        pb.setLayoutParams(lp);
-        line.addView(pb);
-
-        TextView d = new TextView(this);
-        d.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        d.setTextColor(0xFF9C6353);
-        d.setText(r.level + " dBm  " + band + "  ch" + ch + "  " + cap);
-        line.addView(d);
-
-        row.addView(line);
-        apList.addView(row);
-    }
-
-    // ============================================================
-    // ③ 测网速
-    // ============================================================
-    private void startSpeed() {
-        if (busySpeed) { toast("测速正在跑，等一下"); return; }
-        busySpeed = true;
-        openCard(bodySpeed, arrowSpeed, hintSpeed, HINT_SPEED);
-        pbSpeed.setIndeterminate(false);
-        pbSpeed.setMax(1000);
-        pbSpeed.setProgress(0);
-        statusSpeed.setText("");
-        resultSpeed.setText("");
-        scrollTo(cardSpeed);
-
-        new Thread(new Runnable() {
-            public void run() {
-                StringBuilder sb = new StringBuilder();
-                ui.post(new Runnable() {
-                    public void run() { statusSpeed.setText("↓ 正在下载 8 MB…"); }
-                });
-                SpeedResult down;
-                try {
-                    down = measureDownload(new Meter() {
-                        public void onProgress(long got, long total, double mbps) {
-                            final String t = String.format(Locale.US,
-                                    "↓ 已下载 %.1f / %.1f MB    当前 %.1f Mbps",
-                                    got / 1e6, total / 1e6, mbps);
-                            final int p = (int) (got * 500 / Math.max(1, total));
-                            ui.post(new Runnable() {
-                                public void run() {
-                                    statusSpeed.setText(t);
-                                    pbSpeed.setProgress(Math.min(500, p));
-                                }
-                            });
-                        }
-                    });
-                } catch (Exception e) {
-                    down = SpeedResult.fail(e);
-                }
-                final SpeedResult fd = down;
-                sb.append(String.format(Locale.US, "下行：%.2f Mbps（%.1f MB / %.2f 秒）\n",
-                        down.mbps, down.bytes / 1e6, down.ms / 1000.0));
-
-                ui.post(new Runnable() {
-                    public void run() {
-                        statusSpeed.setText(String.format(Locale.US,
-                                "↓ 下行 %.1f Mbps 完成，↑ 正在上传 3 MB…", fd.mbps));
-                        pbSpeed.setProgress(500);
-                    }
-                });
-                SpeedResult up;
-                try {
-                    up = measureUpload(new Meter() {
-                        public void onProgress(long sent, long total, double mbps) {
-                            final String t = String.format(Locale.US,
-                                    "↑ 已上传 %.1f / %.1f MB    当前 %.1f Mbps",
-                                    sent / 1e6, total / 1e6, mbps);
-                            final int p = 500 + (int) (sent * 500 / Math.max(1, total));
-                            ui.post(new Runnable() {
-                                public void run() {
-                                    statusSpeed.setText(t);
-                                    pbSpeed.setProgress(Math.min(1000, p));
-                                }
-                            });
-                        }
-                    });
-                } catch (Exception e) {
-                    up = SpeedResult.fail(e);
-                }
-                final SpeedResult fu = up;
-                sb.append(String.format(Locale.US, "上行：%.2f Mbps（%.1f MB / %.2f 秒）\n",
-                        up.mbps, up.bytes / 1e6, up.ms / 1000.0));
-
-                sb.append("\n");
-                double v = down.mbps;
-                if (!down.ok) {
-                    sb.append("下行没测出来：").append(down.err).append("\n").append(errHint(down.err));
-                } else if (v < 8) {
-                    sb.append("判定：下行 ").append(f1(v)).append(" Mbps，很低。\n");
-                    sb.append("看 1080p 要 5–8 Mbps，这个数基本就是「转圈」的原因。\n\n");
-                    sb.append("这不是你手机的问题。按顺序查：\n");
-                    sb.append("1. 点「④ 谁在连这个 WiFi」，看有几台在同时用。十几台共享一条线必然这样。\n");
-                    sb.append("2. 换到路由器旁边再测一次。只差一点 = 信号不是主因，是总带宽不足。\n");
-                    sb.append("3. 问房东：这条线是多少兆的、几个人分。若号称 100M 你只测到 5M，\n");
-                    sb.append("   那就是被分掉了，或者路由器本身很老。\n");
-                } else if (v < 25) {
-                    sb.append("判定：下行 ").append(f1(v)).append(" Mbps，勉强够用。\n");
-                    sb.append("刷视频可以，多人同时看 1080p 或下大文件就卡。\n\n");
-                    sb.append("1. 点「② 周边 WiFi 拥堵」看信道挤不挤，挤就改 1/6/11。\n");
-                    sb.append("2. 手机能连 5G 就换 5G。\n");
-                    sb.append("3. 晚 9 点再测，若明显更低 = 整栋共享。\n");
-                } else {
-                    sb.append("判定：下行 ").append(f1(v)).append(" Mbps，带宽够用。\n");
-                    sb.append("那么卡就不是带宽，而是：\n");
-                    sb.append("· 延迟/丢包 → 回到「① 一键体检」看两段数据\n");
-                    sb.append("· DNS 慢 → 点「⚡ 换私有 DNS」\n");
-                    sb.append("· 有人在下东西 → 点「④ 谁在连这个 WiFi」\n");
-                }
-                if (up.ok && up.mbps < 1.0) {
-                    sb.append("\n上行只有 ").append(f1(up.mbps))
-                            .append(" Mbps，发图/视频通话/游戏会卡（上行被限速了）。\n");
-                }
-                sb.append("\n说明：测的是云端节点（Cloudflare），不是国内 CDN。\n");
-                sb.append("所以实际刷国内视频通常比这个数好看一些。");
-
-                final String rep = sb.toString();
-                reportSpeed = rep;
-                final String sum = String.format(Locale.US, "↓ %.1f / ↑ %.1f Mbps",
-                        down.mbps, up.mbps);
-                ui.post(new Runnable() {
-                    public void run() {
-                        pbSpeed.setProgress(1000);
-                        statusSpeed.setText("完成：" + sum);
-                        resultSpeed.setText(rep);
-                        setSummary(hintSpeed, sum, HINT_SPEED);
-                        hintSpeed.setText(sum);
-                        saveHist("测网速", sum, rep);
-                    }
-                });
-                busySpeed = false;
-            }
-        }).start();
-    }
-
-    private String errHint(String err) {
-        if (err == null) return "";
-        if (err.contains("timed out") || err.contains("timeout"))
-            return "超时说明这条线此刻基本没吞吐，或者被墙/被限速。";
-        if (err.contains("Unable to resolve") || err.contains("UnknownHost"))
-            return "域名都解析不了 —— 先点「⚡ 换私有 DNS」。";
-        if (err.contains("Connection refused") || err.contains("reset"))
-            return "连接被断 —— 可能被路由器 QoS 限速了。";
-        return "换个时间再测；仍失败就把「① 一键体检」的数据一起给房东看。";
-    }
-
-    private String f1(double v) { return String.format(Locale.US, "%.1f", v); }
-
-    private interface Meter {
-        void onProgress(long done, long total, double mbps);
-    }
-
-    private static class SpeedResult {
-        double mbps; long ms; long bytes; boolean ok; String err;
-
-        static SpeedResult fail(Exception e) {
-            SpeedResult r = new SpeedResult();
-            r.ok = false;
-            r.err = shortErr(e);
-            return r;
-        }
-    }
-
-    private static String shortErr(Exception e) {
-        String m = e.getMessage();
-        String n = e.getClass().getSimpleName();
-        if (m == null) return n;
-        return m.length() > 90 ? n + ": " + m.substring(0, 90) : n + ": " + m;
-    }
-
-    private SpeedResult measureDownload(Meter m) throws Exception {
-        final long TOTAL = 8_000_000L;
-        final long WARM = 1_000_000L;
-        SpeedResult r = new SpeedResult();
-        HttpURLConnection c = (HttpURLConnection)
-                new URL("https://speed.cloudflare.com/__down?bytes=" + TOTAL).openConnection();
-        c.setConnectTimeout(8000);
-        c.setReadTimeout(20000);
-        c.setRequestProperty("Cache-Control", "no-cache");
-        c.setRequestProperty("User-Agent", "WifiCheck/1.4");
-        c.connect();
-        int code = c.getResponseCode();
-        if (code / 100 != 2) throw new Exception("HTTP " + code);
-        InputStream in = c.getInputStream();
-        byte[] buf = new byte[16384];
-        long got = 0, measured = 0, t0 = 0, lastUi = 0;
-        int n;
-        while ((n = in.read(buf)) > 0) {
-            got += n;
-            if (t0 == 0) {
-                if (got < WARM) continue;
-                t0 = System.currentTimeMillis();
-                measured = 0;
-            }
-            measured += n;
-            long now = System.currentTimeMillis();
-            if (m != null && now - lastUi > 180) {
-                lastUi = now;
-                long el = Math.max(1, now - t0);
-                m.onProgress(got, TOTAL, (measured * 8.0 / 1e6) / (el / 1000.0));
-            }
-        }
-        try { in.close(); } catch (Exception ignored) { }
-        c.disconnect();
-        r.ms = Math.max(1, System.currentTimeMillis() - t0);
-        r.bytes = measured;
-        r.mbps = (measured * 8.0 / 1e6) / (r.ms / 1000.0);
-        r.ok = measured > 0;
-        if (!r.ok) r.err = "下载到 0 字节";
-        return r;
-    }
-
-    private SpeedResult measureUpload(Meter m) throws Exception {
-        final int TOTAL = 3_000_000;
-        SpeedResult r = new SpeedResult();
-        HttpURLConnection c = (HttpURLConnection)
-                new URL("https://speed.cloudflare.com/__up?bytes=" + TOTAL).openConnection();
-        c.setConnectTimeout(8000);
-        c.setReadTimeout(20000);
-        c.setDoOutput(true);
-        c.setRequestMethod("POST");
-        c.setFixedLengthStreamingMode(TOTAL);
-        c.setRequestProperty("Content-Type", "application/octet-stream");
-        c.setRequestProperty("User-Agent", "WifiCheck/1.4");
-        c.connect();
-        OutputStream out = c.getOutputStream();
-        byte[] buf = new byte[32768];
-        for (int i = 0; i < buf.length; i++) buf[i] = 0x41;
-        long t0 = System.currentTimeMillis(), sent = 0, lastUi = 0;
-        while (sent < TOTAL) {
-            int k = (int) Math.min(buf.length, TOTAL - sent);
-            out.write(buf, 0, k);
-            sent += k;
-            long now = System.currentTimeMillis();
-            if (m != null && now - lastUi > 180) {
-                lastUi = now;
-                long el = Math.max(1, now - t0);
-                m.onProgress(sent, TOTAL, (sent * 8.0 / 1e6) / (el / 1000.0));
-            }
-        }
-        out.flush();
-        long ms = Math.max(1, System.currentTimeMillis() - t0);
-        try { out.close(); } catch (Exception ignored) { }
-        int code = c.getResponseCode();
-        c.disconnect();
-        if (code / 100 != 2 && code / 100 != 3) throw new Exception("HTTP " + code);
-        r.ms = ms;
-        r.bytes = sent;
-        r.mbps = (sent * 8.0 / 1e6) / (ms / 1000.0);
-        r.ok = true;
-        return r;
-    }
-
-    // ============================================================
-    // ④ 扫局域网设备
-    // ============================================================
-    private void startDevScan() {
-        if (busyDev) { toast("正在扫，等一下"); return; }
-        String gw = gwIp == null ? "" : gwIp;
-        final String base = subnetBase(gw.length() > 0 ? gw : myIp);
-        if (base == null) {
-            toast("读不到本机网段，先连上 WiFi");
-            openCard(bodyDev, arrowDev, hintDev, HINT_DEV);
-            statusDev.setText("没连上 WiFi，读不到网段");
-            return;
-        }
-        busyDev = true;
-        openCard(bodyDev, arrowDev, hintDev, HINT_DEV);
-        pbDev.setIndeterminate(false);
-        pbDev.setMax(254);
-        pbDev.setProgress(0);
-        devList.removeAllViews();
-        statusDev.setText("");
-        scrollTo(cardDev);
-
-        final String gwFinal = gw;
-        new Thread(new Runnable() {
-            public void run() {
-                ui.post(new Runnable() {
-                    public void run() { statusDev.setText("第 1 步：扫描 " + base + ".1–254 存活主机…"); }
-                });
-
-                ExecutorService pool = Executors.newFixedThreadPool(40);
-                List<Future<String>> fs = new ArrayList<>();
-                for (int i = 1; i <= 254; i++) {
-                    final String ip = base + "." + i;
-                    final int idx = i;
-                    fs.add(pool.submit(new Callable<String>() {
-                        public String call() {
-                            boolean up = pingOnce(ip);
-                            final int p = idx;
-                            ui.post(new Runnable() {
-                                public void run() {
-                                    pbDev.setProgress(p);
-                                    if (p % 25 == 0) statusDev.setText("扫描进度 " + p + "/254…");
-                                }
-                            });
-                            return up ? ip : null;
-                        }
-                    }));
-                }
-                Set<String> alive = new HashSet<>();
-                for (Future<String> f : fs) {
-                    try {
-                        String v = f.get(6, TimeUnit.SECONDS);
-                        if (v != null) alive.add(v);
-                    } catch (Exception ignored) { }
-                }
-                Map<String, String> arp = readArp();
-                for (String ip : arp.keySet()) {
-                    if (ip.startsWith(base + ".")) alive.add(ip);
-                }
-                pool.shutdownNow();
-
-                final int aliveN = alive.size();
-                ui.post(new Runnable() {
-                    public void run() {
-                        statusDev.setText("第 2 步：存活 " + aliveN + " 台，正在识别类型/型号…");
-                    }
-                });
-
-                List<String> ips = new ArrayList<>(alive);
-                Collections.sort(ips, new Comparator<String>() {
-                    public int compare(String a, String b) { return Integer.compare(ipInt(a), ipInt(b)); }
-                });
-
-                ExecutorService pool2 = Executors.newFixedThreadPool(12);
-                List<Future<?>> f2 = new ArrayList<>();
-                final List<Dev> found = Collections.synchronizedList(new ArrayList<Dev>());
-                for (final String ip : ips) {
-                    f2.add(pool2.submit(new Runnable() {
-                        public void run() {
-                            Dev d = identify(ip, arp.get(ip), ip.equals(gwFinal), ip.equals(myIp));
-                            found.add(d);
-                            ui.post(new Runnable() {
-                                public void run() {
-                                    statusDev.setText("已识别 " + found.size() + "/" + aliveN + " 台…");
-                                }
-                            });
-                            ui.post(new Runnable() {
-                                public void run() { addDevRow(d); }
-                            });
-                        }
-                    }));
-                }
-                for (Future<?> f : f2) {
-                    try { f.get(25, TimeUnit.SECONDS); } catch (Exception ignored) { }
-                }
-                pool2.shutdownNow();
-
-                List<Dev> all = new ArrayList<>(found);
-                Collections.sort(all, new Comparator<Dev>() {
-                    public int compare(Dev a, Dev b) {
-                        if (a.isGw != b.isGw) return a.isGw ? -1 : 1;
-                        return Integer.compare(ipInt(a.ip), ipInt(b.ip));
-                    }
-                });
-                StringBuilder sb = new StringBuilder();
-                sb.append("网段 ").append(base).append(".0/24，共发现 ").append(all.size()).append(" 台在线设备\n\n");
-                int phones = 0, pcs = 0, others = 0, unknown = 0;
-                for (Dev d : all) {
-                    if (d.type.contains("手机") || d.type.contains("iPhone")) phones++;
-                    else if (d.type.contains("电脑")) pcs++;
-                    else if (d.type.contains("未知")) unknown++;
-                    else others++;
-                }
-                sb.append("手机/平板 ").append(phones).append(" 台，电脑 ").append(pcs)
-                        .append(" 台，其他 ").append(others).append(" 台，没认出来 ").append(unknown).append(" 台\n\n");
-                for (Dev d : all) {
-                    sb.append(d.ip).append("  ").append(d.type);
-                    if (d.isGw) sb.append("  [网关]");
-                    if (d.isMe) sb.append("  [本机]");
-                    sb.append("\n");
-                    if (d.vendor != null && d.vendor.length() > 0) sb.append("   厂商 ").append(d.vendor).append("\n");
-                    if (d.host != null && d.host.length() > 0) sb.append("   主机名 ").append(d.host).append("\n");
-                    if (d.model != null && d.model.length() > 0) sb.append("   型号/标题 ").append(d.model).append("\n");
-                    if (d.ports != null && d.ports.length() > 0) sb.append("   开放端口 ").append(d.ports).append("\n");
-                }
-                sb.append("\n");
-                sb.append("怎么用这份表：\n");
-                sb.append("1. 先数总台数。一间出租屋超过 8–10 台同时在线，带宽必然被瓜分。\n");
-                sb.append("2. 找「未知」和你不认识的电脑。那可能就是别人蹭网或者隔壁在用。\n");
-                sb.append("3. 手机 App 踢不了人 —— 踢人只能在路由器后台做。\n");
-                sb.append("   点「🔧 打开路由器后台」→ 找「已连接设备 / DHCP 客户端」→ 对上表的 IP 或 MAC → 禁用。\n");
-                sb.append("4. Android 10 以后系统禁止普通 App 读别人的 MAC，所以很多行 MAC 是空的，\n");
-                sb.append("   这是系统限制，不是没扫到。路由器后台能看到完整 MAC。\n");
-                final String rep = sb.toString();
-                reportDev = rep;
-                final String sum = all.size() + " 台在线";
-
-                ui.post(new Runnable() {
-                    public void run() {
-                        statusDev.setText("扫描完成，" + all.size() + " 台在线");
-                        pbDev.setProgress(254);
-                        setSummary(hintDev, sum, HINT_DEV);
-                        hintDev.setText(sum);
-                        saveHist("局域网设备", sum, rep);
-                    }
-                });
-                busyDev = false;
-            }
-        }).start();
-    }
-
-    private static class Dev {
-        String ip, mac, vendor, host, type = "❓ 未知设备", model = "", ports = "";
-        int ttl = -1;
-        boolean isGw, isMe;
-    }
-
-    private Dev identify(String ip, String mac, boolean isGw, boolean isMe) {
-        Dev d = new Dev();
-        d.ip = ip;
-        d.mac = mac;
-        d.isGw = isGw;
-        d.isMe = isMe;
-
-        d.ttl = pingTtl(ip);
-        d.host = resolveHost(ip);
-        if (mac != null && mac.length() >= 8) {
-            String key = mac.replace(":", "").replace("-", "").toUpperCase(Locale.US);
-            if (key.length() >= 6) d.vendor = OUI.get(key.substring(0, 6));
-        }
-        Set<Integer> open = probePorts(ip);
-        StringBuilder ps = new StringBuilder();
-        for (Integer p : open) {
-            if (ps.length() > 0) ps.append(",");
-            ps.append(p);
-        }
-        d.ports = ps.toString();
-        if (open.contains(80)) d.model = httpTitle(ip, 80);
-        else if (open.contains(8080)) d.model = httpTitle(ip, 8080);
-        else if (open.contains(443)) d.model = httpTitle(ip, 443);
-
-        d.type = inferType(d, open);
-        return d;
-    }
-
-    private String inferType(Dev d, Set<Integer> open) {
-        String h = d.host == null ? "" : d.host.toLowerCase(Locale.US);
-        String m = d.model == null ? "" : d.model.toLowerCase(Locale.US);
-        String v = d.vendor == null ? "" : d.vendor;
-
-        if (d.isGw) return "📡 路由器 / 光猫";
-        if (d.isMe) return "📱 本机（这台手机）";
-
-        if (open.contains(9100) || open.contains(631) || open.contains(515))
-            return "🖨 打印机";
-        if (open.contains(62078))
-            return "📱 iPhone / iPad";
-        if (open.contains(3389) || open.contains(445) || open.contains(139))
-            return "💻 Windows 电脑";
-        if (open.contains(554) || open.contains(8009) || open.contains(7000) || open.contains(5000))
-            return "📺 电视 / 盒子 / 摄像头";
-        if (open.contains(22))
-            return "💾 NAS / 服务器";
-
-        String[] pcKeys = {"pc", "desktop", "laptop", "thinkpad", "macbook", "windows", "win-", "pc-", "computer"};
-        String[] phoneKeys = {"phone", "iphone", "ipad", "android", "redmi", "mi-", "huawei", "honor", "oppo", "vivo", "galaxy", "pixel", "oneplus", "realme", "meizu"};
-        String[] tvKeys = {"tv", "box", "mi-box", "appletv", "firetv", "chromecast", "投影"};
-        String[] printKeys = {"printer", "hp-", "canon", "epson", "brother", "lexmark"};
-
-        for (String k : printKeys) if (h.contains(k) || m.contains(k)) return "🖨 打印机";
-        for (String k : tvKeys) if (h.contains(k) || m.contains(k)) return "📺 电视 / 盒子";
-        for (String k : pcKeys) if (h.contains(k) || m.contains(k)) return "💻 电脑";
-        for (String k : phoneKeys)
-            if (h.contains(k) || m.contains(k))
-                return (h.contains("iphone") || h.contains("ipad")) ? "📱 iPhone / iPad" : "📱 手机";
-
-        if (d.ttl == 128) return "💻 电脑（Windows）";
-        if (d.ttl == 64) return "📱 手机 / 平板（Android/iOS）";
-        if (d.ttl == 255) return "📡 网络设备";
-        if (d.ttl > 0 && d.ttl <= 64) return "📱 手机 / 平板";
-        if (d.ttl > 64 && d.ttl <= 128) return "💻 电脑";
-
-        String[] phoneBrand = {"小米", "华为", "苹果", "三星", "OPPO", "vivo", "魅族", "一加", "Google"};
-        for (String b : phoneBrand) if (v.equals(b)) return "📱 手机 / 平板（" + v + "）";
-
-        return "❓ 未知设备";
-    }
-
-    private void addDevRow(Dev d) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundResource(R.drawable.inner_white);
-        int p = dp(12);
-        card.setPadding(p, dp(9), p, dp(9));
-        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        cp.bottomMargin = dp(7);
-        card.setLayoutParams(cp);
-
-        TextView t1 = new TextView(this);
-        t1.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        t1.setTypeface(Typeface.DEFAULT_BOLD);
-        t1.setTextColor(0xFF6B4E12);
-        String head = d.type + "   " + d.ip;
-        if (d.isGw) head += "   [网关]";
-        if (d.isMe) head += "   [本机]";
-        t1.setText(head);
-        card.addView(t1);
-
-        StringBuilder sb = new StringBuilder();
-        if (d.vendor != null && d.vendor.length() > 0) sb.append("厂商 ").append(d.vendor);
-        if (d.host != null && d.host.length() > 0) {
-            if (sb.length() > 0) sb.append("   ");
-            sb.append("主机名 ").append(d.host);
-        }
-        if (sb.length() > 0) {
-            TextView t2 = new TextView(this);
-            t2.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-            t2.setTextColor(0xFF8F6E2A);
-            t2.setPadding(0, dp(4), 0, 0);
-            t2.setText(sb.toString());
-            card.addView(t2);
-        }
-        if (d.model != null && d.model.length() > 0) {
-            TextView t3 = new TextView(this);
-            t3.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-            t3.setTextColor(0xFF8F6E2A);
-            t3.setPadding(0, dp(4), 0, 0);
-            t3.setText("型号/页面标题：" + d.model);
-            card.addView(t3);
-        }
-        if (d.ports != null && d.ports.length() > 0) {
-            TextView t4 = new TextView(this);
-            t4.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-            t4.setTextColor(0xFF8F6E2A);
-            t4.setPadding(0, dp(4), 0, 0);
-            t4.setText("开放端口 " + d.ports);
-            card.addView(t4);
-        }
-        TextView t5 = new TextView(this);
-        t5.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        t5.setTextColor(0xFFA09070);
-        t5.setPadding(0, dp(4), 0, 0);
-        t5.setText("MAC " + (d.mac == null || d.mac.length() < 8 ? "读不到（Android 10+ 系统限制）" : d.mac)
-                + (d.ttl > 0 ? "   TTL " + d.ttl : ""));
-        card.addView(t5);
-
-        devList.addView(card);
-    }
-
-    private boolean pingOnce(String ip) {
-        try {
-            Process p = Runtime.getRuntime().exec(new String[]{
-                    "/system/bin/ping", "-c", "1", "-W", "1", ip});
-            BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream()));
-            String line;
-            boolean got = false;
-            while ((line = br.readLine()) != null) {
-                if (line.contains("1 received") || line.contains("1 packets received")) got = true;
-                else if (line.contains("time=")) got = true;
-            }
-            p.waitFor();
-            return got;
-        } catch (Exception e) {
-            try {
-                return InetAddress.getByName(ip).isReachable(600);
-            } catch (Exception ignored) {
-                return false;
-            }
-        }
-    }
-
-    private int pingTtl(String ip) {
-        try {
-            Process p = Runtime.getRuntime().exec(new String[]{
-                    "/system/bin/ping", "-c", "1", "-W", "1", ip});
-            BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream()));
-            String line;
-            Pattern pt = Pattern.compile("ttl=(\\d+)", Pattern.CASE_INSENSITIVE);
-            while ((line = br.readLine()) != null) {
-                Matcher m = pt.matcher(line);
-                if (m.find()) {
-                    p.destroy();
-                    return Integer.parseInt(m.group(1));
-                }
-            }
-            p.waitFor();
-        } catch (Exception ignored) { }
+    private static int freqToCh(int freq) {
+        if (freq >= 2412 && freq <= 2484) return (freq - 2407) / 5;
+        if (freq >= 5000) return 100 + (freq - 5000) / 5;
         return -1;
     }
 
-    private String resolveHost(String ip) {
-        ExecutorService ex = Executors.newSingleThreadExecutor();
-        try {
-            Future<String> f = ex.submit(new Callable<String>() {
-                public String call() {
-                    try {
-                        InetAddress a = InetAddress.getByName(ip);
-                        String h = a.getCanonicalHostName();
-                        if (h == null || h.equals(ip)) return "";
-                        return h;
-                    } catch (Exception e) {
-                        return "";
-                    }
-                }
-            });
-            String h = f.get(1500, TimeUnit.MILLISECONDS);
-            return h == null ? "" : h;
-        } catch (Exception e) {
-            return "";
-        } finally {
-            ex.shutdownNow();
+    private static int chFromFreq(int freq) {
+        if (freq >= 2412 && freq <= 2484) return (freq - 2407) / 5;
+        if (freq >= 5000) return 100 + (freq - 5000) / 5;
+        return -1;
+    }
+
+    private static int bestChannel(int[] cc) {
+        int best = -1, bestVal = Integer.MAX_VALUE;
+        int[] cand = {1, 6, 11, 3, 8, 13};
+        for (int c : cand) {
+            if (c < 1 || c > 13) continue;
+            int v = cc[c - 1];
+            int lv = c > 1 ? cc[c - 2] : 0;
+            int rv = c < 13 ? cc[c] : 0;
+            int score = v * 3 + lv + rv;
+            if (score < bestVal) { bestVal = score; best = c; }
+        }
+        return best;
+    }
+
+    private void tint(View v, int drawable) { v.setBackgroundResource(drawable); }
+
+    private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }
+
+    private static String fmt(String f, Object... a) { return String.format(Locale.US, f, a); }
+
+    private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
+
+    @Override
+    public void onRequestPermissionsResult(int req, @NonNull String[] p, @NonNull int[] g) {
+        super.onRequestPermissionsResult(req, p, g);
+        if (req == REQ_SCAN) {
+            if (g.length > 0 && g[0] == PackageManager.PERMISSION_GRANTED) toast("已授权，可以扫了");
+            else toast("不给定位权限，系统不让扫周边 WiFi");
         }
     }
 
-    private static final int[] PORTS = {22, 23, 53, 80, 139, 443, 445, 554, 631, 3389,
-            5000, 7000, 8008, 8009, 8080, 9100, 5555, 62078};
-
-    private Set<Integer> probePorts(String ip) {
-        Set<Integer> open = new HashSet<>();
-        for (int port : PORTS) {
-            Socket s = new Socket();
-            try {
-                s.connect(new InetSocketAddress(ip, port), 260);
-                open.add(port);
-            } catch (Exception ignored) {
-            } finally {
-                try { s.close(); } catch (Exception ignored) { }
-            }
-        }
-        return open;
-    }
-
-    private String httpTitle(String ip, int port) {
-        HttpURLConnection c = null;
-        try {
-            URL u = new URL((port == 443 ? "https" : "http") + "://" + ip + ":" + port + "/");
-            c = (HttpURLConnection) u.openConnection();
-            c.setConnectTimeout(1200);
-            c.setReadTimeout(1500);
-            c.setInstanceFollowRedirects(false);
-            c.setRequestProperty("User-Agent", "Mozilla/5.0");
-            int code = c.getResponseCode();
-            if (code >= 400) return "";
-            String server = c.getHeaderField("Server");
-            String powered = c.getHeaderField("X-Powered-By");
-            String loc = c.getHeaderField("Location");
-            StringBuilder sb = new StringBuilder();
-            if (server != null && server.length() > 0) sb.append(server);
-            if (powered != null && powered.length() > 0) {
-                if (sb.length() > 0) sb.append(" / ");
-                sb.append(powered);
-            }
-            InputStream in = c.getInputStream();
-            byte[] buf = new byte[4096];
-            int n = in.read(buf);
-            in.close();
-            if (n > 0) {
-                String html = new String(buf, 0, n, "UTF-8");
-                Matcher m = Pattern.compile("<title[^>]*>(.*?)</title>",
-                        Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(html);
-                if (m.find()) {
-                    String t = m.group(1).replaceAll("\\s+", " ").trim();
-                    if (t.length() > 0) {
-                        if (sb.length() > 0) sb.append(" · ");
-                        sb.append(t.length() > 60 ? t.substring(0, 60) : t);
-                    }
-                }
-            }
-            if (loc != null && loc.length() > 0 && sb.length() == 0) sb.append("跳转 ").append(loc);
-            return sb.toString();
-        } catch (Exception e) {
-            return "";
-        } finally {
-            if (c != null) c.disconnect();
-        }
-    }
-
-    private Map<String, String> readArp() {
-        Map<String, String> m = new HashMap<>();
-        BufferedReader br = null;
-        try {
-            br = new BufferedReader(new InputStreamReader(
-                    new java.io.FileInputStream("/proc/net/arp")));
-            String line = br.readLine();
-            while ((line = br.readLine()) != null) {
-                String[] p = line.split("\\s+");
-                if (p.length >= 4) {
-                    String ip = p[0];
-                    String mac = p[3];
-                    if (mac != null && mac.length() >= 17 && !mac.startsWith("00:00:00")) {
-                        m.put(ip, mac.toUpperCase(Locale.US));
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-        } finally {
-            if (br != null) try { br.close(); } catch (Exception ignored) { }
-        }
-        return m;
-    }
-
-    // ============================================================
-    // ping / 网络工具
-    // ============================================================
-    private interface PingView {
-        void onTick(PingStat s);
-    }
-
-    private static class PingStat {
-        int count, recv;
-        double min = -1, max = 0, sum = 0, last = 0;
-
-        double avg() { return recv == 0 ? 0 : sum / recv; }
-        double jitter() { return recv < 2 ? 0 : max - min; }
-        double loss() { return count == 0 ? 0 : (count - recv) * 100.0 / count; }
-    }
-
-    private PingStat pingHost(String host, int count, PingView view) {
-        PingStat s = new PingStat();
-        s.count = count;
-        boolean parsed = false;
-        Process p = null;
-        try {
-            p = Runtime.getRuntime().exec(new String[]{
-                    "/system/bin/ping", "-c", String.valueOf(count), "-i", "0.2", "-W", "2", host});
-            BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream()));
-            Pattern pat = Pattern.compile("time=([0-9.]+)\\s*ms");
-            String line;
-            while ((line = br.readLine()) != null) {
-                Matcher m = pat.matcher(line);
-                if (m.find()) {
-                    double v = Double.parseDouble(m.group(1));
-                    parsed = true;
-                    s.recv++;
-                    s.sum += v;
-                    s.last = v;
-                    if (s.min < 0 || v < s.min) s.min = v;
-                    if (v > s.max) s.max = v;
-                    if (view != null) view.onTick(s);
-                }
-            }
-            try { p.waitFor(); } catch (Exception ignored) { }
-        } catch (Exception e) {
-            parsed = false;
-        } finally {
-            if (p != null) try { p.destroy(); } catch (Exception ignored) { }
-        }
-
-        if (!parsed || s.recv == 0) {
-            int got = 0;
-            double sum = 0;
-            double mn = -1, mx = 0;
-            for (int i = 0; i < Math.min(count, 4); i++) {
-                long t0 = System.currentTimeMillis();
-                try {
-                    InetAddress a = InetAddress.getByName(host);
-                    if (a.isReachable(1500)) {
-                        double v = System.currentTimeMillis() - t0;
-                        got++; sum += v; s.last = v;
-                        if (mn < 0 || v < mn) mn = v;
-                        if (v > mx) mx = v;
-                        s.recv = got;
-                        s.sum = sum;
-                        s.min = mn;
-                        s.max = mx;
-                        if (view != null) view.onTick(s);
-                    }
-                } catch (Exception ignored) { }
-            }
-        }
-        return s;
-    }
-
-    private static class WifiBrief {
-        int rssi = 0, linkMbps = 0;
-        String band = "?";
-    }
-
-    private WifiBrief readWifi() {
-        try {
-            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-            if (wm == null) return null;
-            WifiInfo wi = wm.getConnectionInfo();
-            if (wi == null) return null;
-            WifiBrief b = new WifiBrief();
-            b.rssi = wi.getRssi();
-            b.linkMbps = wi.getLinkSpeed();
-            if (Build.VERSION.SDK_INT >= 21) {
-                int f = wi.getFrequency();
-                b.band = f > 4000 ? "5G(" + f + "MHz)" : (f > 0 ? "2.4G(" + f + "MHz)" : "?");
-            }
-            return b;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private String getGatewayIp() {
-        try {
-            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (cm == null) return "";
-            android.net.Network n = cm.getActiveNetwork();
-            if (n == null) return "";
-            LinkProperties lp = cm.getLinkProperties(n);
-            if (lp == null) return "";
-            for (RouteInfo r : lp.getRoutes()) {
-                if (r.isDefaultRoute() && r.getGateway() instanceof java.net.Inet4Address) {
-                    return r.getGateway().getHostAddress();
-                }
-            }
-        } catch (Exception ignored) { }
-        return "";
-    }
-
-    private String getDnsList() {
-        try {
-            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (cm == null) return "";
-            android.net.Network n = cm.getActiveNetwork();
-            if (n == null) return "";
-            LinkProperties lp = cm.getLinkProperties(n);
-            if (lp == null) return "";
-            StringBuilder sb = new StringBuilder();
-            for (InetAddress a : lp.getDnsServers()) {
-                if (sb.length() > 0) sb.append(", ");
-                sb.append(a.getHostAddress());
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
-    private String getLocalIp() {
-        try {
-            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-            if (wm == null) return "";
-            int ip = wm.getConnectionInfo().getIpAddress();
-            if (ip == 0) return "";
-            return (ip & 0xff) + "." + ((ip >> 8) & 0xff) + "." + ((ip >> 16) & 0xff) + "." + ((ip >> 24) & 0xff);
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
-    private String subnetBase(String ip) {
-        if (ip == null || ip.length() == 0) return null;
-        int idx = ip.lastIndexOf('.');
-        if (idx <= 0) return null;
-        return ip.substring(0, idx);
-    }
-
-    private static int ipInt(String ip) {
-        try {
-            String[] p = ip.split("\\.");
-            if (p.length != 4) return 0;
-            int a = Integer.parseInt(p[0]), b = Integer.parseInt(p[1]);
-            int c = Integer.parseInt(p[2]), d = Integer.parseInt(p[3]);
-            return ((a & 0xff) << 24) | ((b & 0xff) << 16) | ((c & 0xff) << 8) | (d & 0xff);
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-    // ============================================================
-    // UI 小工具
-    // ============================================================
-    private int dp(int v) {
-        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
-    }
-
-    private void toast(String s) {
-        Toast.makeText(this, s, Toast.LENGTH_SHORT).show();
-    }
-
-    private void copyText(String s) {
-        try {
-            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            cm.setPrimaryClip(ClipData.newPlainText("WiFi体检报告", s));
-            toast("已复制，可以直接发给房东");
-        } catch (Exception e) {
-            toast("复制失败：" + e.getMessage());
-        }
-    }
-
-    private void scrollTo(final View v) {
-        ui.postDelayed(new Runnable() {
-            public void run() {
-                try { scroll.smoothScrollTo(0, v.getTop()); } catch (Exception ignored) { }
-            }
-        }, 120);
+    private boolean needScanPermission() {
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED;
     }
 }
