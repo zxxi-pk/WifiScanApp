@@ -2,11 +2,24 @@
 
 房东宽带慢、卡、转圈，但手上只有手机？这个 App 用手机把「到底哪一段慢」测出来。
 
-**下载安装包（v2.1）**
+**下载安装包（v2.2）**
 
-https://github.com/zxxi-pk/WifiScanApp/releases/download/v2.1/WiFiCheck-v2.1.apk
+https://github.com/zxxi-pk/WifiScanApp/releases/download/v2.2/WiFiCheck-v2.2.apk
 
 > Android 手机。装之前如果装过旧版，**先卸载旧版**（调试签名每次重新生成，覆盖安装会报「应用未安装」）。
+
+---
+
+## v2.2 修了什么（v2.1 的真 bug）
+
+| 问题 | 根因 | 修法 |
+|---|---|---|
+| 点「开始全面检测」后四项全是「—」，设备显示 0，什么也没发生 | `runAll()` 在后台线程里直接调 `refreshHead()`，而它内部 `setText` 操作 UI。Android 抛 `CalledFromWrongThreadException`，后台线程当场死掉，后面四项一行都没跑，`busy` 还卡在 true | 拆成 `refreshHead()`（只取数据）+ `applyHead()`（只碰 UI，主线程调）；后台线程一律 `ui.post` |
+| 设备页一台都扫不出来 | Android 9+ 很多机型已经收回 `ping` 的 raw socket 权限，`/system/bin/ping` 直接 `Operation not permitted`，只用 ping 判活会把整个网段判成"没设备" | `pingOnce()` 改成三级兜底：`ping` → TCP 探活（80/443/53/5555/8080/62078/9100 任一连上即算在线）→ `isReachable` |
+| 网关读不到就整段扫描跳过 | Android 12+ 部分机型 `getDhcpInfo()` 失效 | 加最后兜底：用本机 IP 推同网段 `.1` |
+| 看不出在扫、扫到哪了 | 只有一行文字 | 总览加细进度条 + ①②③④ 分步指示（进行中深色、完成变绿）；设备页加独立进度条 + 「已 ping N/254，回应 M 台」实时计数 |
+
+> 顺带：设备数为 0 现在会明确说「一台都没扫到」并列出三条原因（没连 WiFi / 路由器开了 AP 隔离 / 网关读不到），不再是误导性的「全部认识」。
 
 ---
 
