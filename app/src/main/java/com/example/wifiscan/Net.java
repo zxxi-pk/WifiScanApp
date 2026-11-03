@@ -78,6 +78,64 @@ final class Net {
         String mdns = "";
         int ttl = -1;
         boolean isGw, isMe;
+        /** 疑似占用带宽等级：0 低 / 1 中 / 2 高。是推断，不是实测流量。 */
+        int suspect = 0;
+        /** 推断依据，给用户看的实话。 */
+        String suspectWhy = "";
+    }
+
+    /** 用可观测的间接信号推断「这台设备像不像在占带宽」。
+     *  说明：普通 App 拿不到局域网内其他设备的实时流量，这里只做可信推断，
+     *  等级和依据一起显示，不编造 Mbps 数字。 */
+    static void computeSuspect(Dev d, Set<Integer> open) {
+        if (d.isGw) {
+            d.suspect = 0;
+            d.suspectWhy = "路由器/光猫本身";
+            return;
+        }
+        if (d.isMe) {
+            d.suspect = 0;
+            d.suspectWhy = "本机";
+            return;
+        }
+        int score = 0;
+        StringBuilder why = new StringBuilder();
+
+        if ("未知设备".equals(d.type)) {
+            score += 2;
+            why.append("认不出来");
+        }
+        if (open != null) {
+            boolean media = open.contains(554) || open.contains(8009) || open.contains(5000) || open.contains(7000);
+            if (media) {
+                score += 2;
+                if (why.length() > 0) why.append("、");
+                why.append("开着投屏/流媒体端口");
+            }
+            boolean share = open.contains(445) || open.contains(139);
+            if (share) {
+                score += 1;
+                if (why.length() > 0) why.append("、");
+                why.append("开着文件共享");
+            }
+            boolean heavy = open.contains(8080) || open.contains(8008) || open.contains(9100);
+            if (heavy) {
+                score += 1;
+                if (why.length() > 0) why.append("、");
+                why.append("开着高流量服务端口");
+            }
+        }
+        if (d.ttl > 0 && d.ttl <= 64 && "未知设备".equals(d.type)) {
+            score += 1;
+        }
+
+        d.suspect = score >= 3 ? 2 : (score >= 2 ? 1 : 0);
+        if (why.length() == 0) why.append("没有异常迹象");
+        d.suspectWhy = why.toString();
+    }
+
+    static String suspectText(int lv) {
+        return lv >= 2 ? "疑似占用高" : (lv >= 1 ? "疑似占用中" : "疑似占用低");
     }
 
     // ---------------- 版本化的口子 ----------------
@@ -235,17 +293,21 @@ final class Net {
         return s;
     }
 
-    /** 判断主机是否在线。三步兜底：ping 命令 → TCP 探活 → isReachable。
-     *  Android 9+ 部分机型已收回 ping 的 raw socket 权限，ping 会直接 "Operation not permitted"，
-     *  所以绝不能只靠 ping，否则整个网段都会被判成"没有设备"。 */
+    /** ping 一旦确认不可用就永久降级，避免 254 个地址各浪费 2 秒。 */
+    private static volatile boolean pingBroken = false;
+
+    /** 判断主机是否在线。优先 TCP（快、无需权限），ping 只在确认可用时用。
+     *  v2.4 关键改动：v2.2 的"ping 优先"导致每个死地址最坏 3.5 秒，
+     *  40 线程跑 254 个地址在 45 秒超时点被截断，高 IP 段（手机/电视）全丢。 */
     static boolean pingOnce(String ip) {
-        if (pingShell(ip)) return true;
         if (tcpProbe(ip)) return true;
+        if (!pingBroken && pingShell(ip)) return true;
         try {
-            return InetAddress.getByName(ip).isReachable(600);
+            return InetAddress.getByName(ip).isReachable(500);
         } catch (Throwable e) { return false; }
     }
 
+    /** 只用 ping（给 TTL 探测用，不做全局探活）。 */
     private static boolean pingShell(String ip) {
         Process proc = null;
         BufferedReader br = null;
@@ -255,11 +317,16 @@ final class Net {
             String line;
             boolean hit = false;
             while ((line = br.readLine()) != null) {
+                if (line.contains("not permitted") || line.contains("Permission denied")) {
+                    pingBroken = true;
+                    return false;
+                }
                 if (line.contains("1 received") || line.contains("1 packets received") || line.contains("time=")) hit = true;
             }
             proc.waitFor();
             return hit;
         } catch (Throwable ignored) {
+            pingBroken = true;
             return false;
         } finally {
             if (br != null) try { br.close(); } catch (Throwable ignored) {}
@@ -267,37 +334,54 @@ final class Net {
         }
     }
 
-    private static final int[] PROBE_PORTS = {80, 443, 53, 5555, 8080, 62078, 9100};
+    /** 第一批：最常见的三个端口，命中率最高、超时最短。 */
+    private static final int[] PROBE_FAST = {80, 443, 62078};
+    /** 第二批：慢一点但能认出特殊设备（DNS/ADB/Web/打印机）。 */
+    private static final int[] PROBE_SLOW = {53, 5555, 8080, 9100};
+    /** 兼容旧引用。 */
+    private static final int[] PROBE_PORTS = {80, 443, 62078, 53, 5555, 8080, 9100};
 
-    /** 只要有任意常见端口接受连接，就算这台设备活着。不依赖 root 或 ping 权限。 */
+    /** 只要有任意常见端口接受连接，就算这台设备活着。不依赖 root 或 ping 权限。
+     *  分批探测：先 3 个高效端口（400ms），全部失败才试剩余 4 个。 */
     static boolean tcpProbe(String ip) {
-        for (int port : PROBE_PORTS) {
-            Socket s = new Socket();
-            try {
-                s.connect(new InetSocketAddress(ip, port), 220);
-                return true;
-            } catch (Throwable ignored) {
-            } finally {
-                try { s.close(); } catch (Throwable ignored) {}
-            }
+        for (int port : PROBE_FAST) {
+            if (tryPort(ip, port, 400)) return true;
+        }
+        for (int port : PROBE_SLOW) {
+            if (tryPort(ip, port, 400)) return true;
         }
         return false;
     }
 
+    private static boolean tryPort(String ip, int port, int timeoutMs) {
+        Socket s = new Socket();
+        try {
+            s.connect(new InetSocketAddress(ip, port), timeoutMs);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        } finally {
+            try { s.close(); } catch (Throwable ignored) {}
+        }
+    }
+
     static int pingTtl(String ip) {
+        if (pingBroken) return -1;
         Process proc = null;
+        BufferedReader br = null;
         try {
             proc = Runtime.getRuntime().exec(new String[]{"/system/bin/ping", "-c", "1", "-W", "1", ip});
-            BufferedReader br = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+            br = new BufferedReader(new InputStreamReader(proc.getInputStream()));
             String line;
             while ((line = br.readLine()) != null) {
                 Matcher m = TTL_RE.matcher(line);
                 if (m.find()) return Integer.parseInt(m.group(1));
             }
-            br.close();
             proc.waitFor();
         } catch (Throwable ignored) {
+            pingBroken = true;
         } finally {
+            if (br != null) try { br.close(); } catch (Throwable ignored) {}
             if (proc != null) try { proc.destroy(); } catch (Throwable ignored) {}
         }
         return -1;
@@ -595,13 +679,16 @@ final class Net {
         try {
             br = new BufferedReader(new java.io.FileReader("/proc/net/arp"));
             String line;
-            br.readLine();
+            boolean first = true;
             while ((line = br.readLine()) != null) {
+                if (first) { first = false; if (line.contains("IP address")) continue; }
                 String[] p = line.trim().split("\\s+");
                 if (p.length < 4) continue;
-                String ip = p[0], mac = p[3];
+                String ip = p[0], flag = p[2], mac = p[3];
                 if (ip == null || !ip.contains(".")) continue;
                 if (mac == null || mac.startsWith("00:00:00")) continue;
+                // flags 0x0 = 未完成，0x2 = 有效
+                if ("0x0".equalsIgnoreCase(flag)) continue;
                 map.put(ip, mac.toUpperCase(Locale.US));
             }
         } catch (Throwable ignored) {
@@ -633,18 +720,19 @@ final class Net {
 
     static Set<Integer> probePorts(String ip) {
         Set<Integer> open = new java.util.HashSet<>();
+        // 先扫最可能开的高价值端口（短超时），命中率高，能省下大量等待
+        for (int port : PORT_HOT) {
+            if (tryPort(ip, port, 180)) open.add(port);
+        }
         for (int port : PORTS) {
-            Socket s = new Socket();
-            try {
-                s.connect(new InetSocketAddress(ip, port), 260);
-                open.add(port);
-            } catch (Throwable ignored) {
-            } finally {
-                try { s.close(); } catch (Throwable ignored) {}
-            }
+            if (open.contains(port)) continue;
+            if (tryPort(ip, port, 180)) open.add(port);
         }
         return open;
     }
+
+    /** 高价值端口：绝大多数在线设备会命中其中之一或几个。 */
+    private static final int[] PORT_HOT = {80, 443, 62078, 8009, 445};
 
     static final int[] PORTS = {22, 23, 53, 80, 139, 443, 445, 554, 631, 3389, 5000, 7000, 8008, 8009, 8080, 9100, 5555, 62078};
 

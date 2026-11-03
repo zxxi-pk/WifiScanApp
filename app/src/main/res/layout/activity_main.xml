@@ -1094,6 +1094,44 @@
                                 android:text="分档测速：先试 1 MB，够快才加码"
                                 android:textColor="#B0B8C4"
                                 android:textSize="10sp" />
+
+                            <!-- Mbps / MB/s 切换 -->
+                            <LinearLayout
+                                android:id="@+id/unitSwitch"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_gravity="center_horizontal"
+                                android:layout_marginTop="10dp"
+                                android:background="@drawable/seg_bg"
+                                android:orientation="horizontal"
+                                android:padding="3dp">
+
+                                <TextView
+                                    android:id="@+id/unitMbps"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:background="@drawable/seg_on"
+                                    android:paddingLeft="14dp"
+                                    android:paddingTop="5dp"
+                                    android:paddingRight="14dp"
+                                    android:paddingBottom="5dp"
+                                    android:text="Mbps"
+                                    android:textColor="#17223B"
+                                    android:textSize="11sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/unitMBs"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:paddingLeft="14dp"
+                                    android:paddingTop="5dp"
+                                    android:paddingRight="14dp"
+                                    android:paddingBottom="5dp"
+                                    android:text="MB/s"
+                                    android:textColor="#5C6B80"
+                                    android:textSize="11sp" />
+                            </LinearLayout>
                         </LinearLayout>
 
                         <LinearLayout
@@ -1667,7 +1705,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:lineSpacingExtra="4dp"
-                            android:text="踢设备只能在路由器后台做：登录后找「已连接设备 / DHCP 客户端」，对上 IP 或 MAC 拉黑。\n\nAndroid 10 以后系统禁止普通 App 读别人的 MAC 地址，所以设备列表里有些行显示读不到，路由器后台能看到完整信息。\n\n带宽套餐只能谈：高峰时段复测一次，把「复制完整体检报告」的内容发给房东，比说「网卡」有用。"
+                            android:text="踢设备只能在路由器后台做：登录后找「已连接设备 / DHCP 客户端」，对上 IP 或 MAC 拉黑。\n\nAndroid 10 以后系统禁止普通 App 读别人的 MAC 地址，所以设备列表里有些行显示读不到，路由器后台能看到完整信息。\n\n上游带宽只能拿数据说话：高峰时段复测一次，把「复制完整体检报告」的内容留存对比，比空口说「网卡」有效。"
                             android:textColor="#8A94A6"
                             android:textSize="11sp" />
                     </LinearLayout>
