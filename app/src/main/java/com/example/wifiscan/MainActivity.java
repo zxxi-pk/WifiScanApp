@@ -552,8 +552,8 @@ public class MainActivity extends AppCompatActivity {
                         for (ScanResult sr : found) {
                             int ch = freqToCh(sr.frequency);
                             if (ch >= 1 && ch <= 13 && sr.level > -85) cc[ch - 1]++;
-                            int g = freqTo5gGroup(sr.frequency);
-                            if (g >= 0 && sr.level > -85) g5[g]++;
+                            int gi = freqTo5gGroup(sr.frequency);
+                            if (gi >= 0 && sr.level > -85) g5[gi]++;
                             r[0]++;
                         }
                         int cur = chFromFreq(wb.freq);
