@@ -62,7 +62,7 @@
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
 
-                        <com.example.wifiscan.Views$ScoreRing
+                        <com.example.wifiscan.ScoreRing
                             android:id="@+id/ringScore"
                             android:layout_width="92dp"
                             android:layout_height="92dp" />
@@ -602,7 +602,7 @@
                                     android:textSize="12sp" />
                             </LinearLayout>
 
-                            <com.example.wifiscan.Views$Band
+                            <com.example.wifiscan.Band
                                 android:id="@+id/bandGw"
                                 android:layout_width="match_parent"
                                 android:layout_height="10dp"
@@ -633,7 +633,7 @@
                                     android:textSize="12sp" />
                             </LinearLayout>
 
-                            <com.example.wifiscan.Views$Band
+                            <com.example.wifiscan.Band
                                 android:id="@+id/bandWan"
                                 android:layout_width="match_parent"
                                 android:layout_height="10dp"
@@ -812,7 +812,7 @@
                                 android:textColor="#95A0B0"
                                 android:textSize="10sp" />
 
-                            <com.example.wifiscan.Views$ChannelChart
+                            <com.example.wifiscan.ChannelChart
                                 android:id="@+id/chartCh"
                                 android:layout_width="match_parent"
                                 android:layout_height="150dp"
@@ -953,7 +953,7 @@
                             android:orientation="vertical"
                             android:padding="15dp">
 
-                            <com.example.wifiscan.Views$SpeedRing
+                            <com.example.wifiscan.SpeedRing
                                 android:id="@+id/ringSpeed"
                                 android:layout_width="170dp"
                                 android:layout_height="170dp"
@@ -1003,7 +1003,7 @@
                                     android:textSize="12sp" />
                             </LinearLayout>
 
-                            <com.example.wifiscan.Views$Band
+                            <com.example.wifiscan.Band
                                 android:id="@+id/bandDown"
                                 android:layout_width="match_parent"
                                 android:layout_height="10dp"
@@ -1034,7 +1034,7 @@
                                     android:textSize="12sp" />
                             </LinearLayout>
 
-                            <com.example.wifiscan.Views$Band
+                            <com.example.wifiscan.Band
                                 android:id="@+id/bandUp"
                                 android:layout_width="match_parent"
                                 android:layout_height="10dp"
@@ -1065,7 +1065,7 @@
                                     android:textSize="12sp" />
                             </LinearLayout>
 
-                            <com.example.wifiscan.Views$Band
+                            <com.example.wifiscan.Band
                                 android:id="@+id/bandCost"
                                 android:layout_width="match_parent"
                                 android:layout_height="10dp"

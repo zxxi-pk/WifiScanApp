@@ -64,7 +64,7 @@ public class MainActivity extends AppCompatActivity {
 
     // ---- 总览 ----
     private TextView tvSsid, tvNetMeta, tvVerdict, tvVerdictSub, tvTag;
-    private Views.ScoreRing ringScore;
+    private ScoreRing ringScore;
     private TextView tvOvLat, tvOvLatState, tvOvLoss, tvOvLossState;
     private TextView tvOvDown, tvOvDownState, tvOvDev, tvOvDevState;
     private Button btnRun;
@@ -76,7 +76,7 @@ public class MainActivity extends AppCompatActivity {
     private View diagLat, diagCh, diagSpeed, diagDev;
     private int seg = 0;
 
-    private Views.Band bandGw, bandWan;
+    private Band bandGw, bandWan;
     private TextView tvGwVal, tvWanVal, tvJitter, tvJitterState, tvLossBig, tvLossState;
     private View latVerdictBox;
     private TextView tvLatVerdict, tvLatAdvice;
@@ -84,15 +84,15 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvFoldLatTitle, tvLatDetail;
     private boolean foldLatOpen = false;
 
-    private Views.ChannelChart chartCh;
+    private ChannelChart chartCh;
     private TextView tvCurCh, tvSugCh, tvChVerdict, tvChAdvice, tvFoldChTitle;
     private View chVerdictBox, foldCh;
     private LinearLayout apList;
     private boolean foldChOpen = false;
 
-    private Views.SpeedRing ringSpeed;
+    private SpeedRing ringSpeed;
     private TextView tvSpeedStatus, tvDownVal, tvUpVal, tvCostVal, tvSpeedVerdict, tvSpeedAdvice;
-    private Views.Band bandDown, bandUp, bandCost;
+    private Band bandDown, bandUp, bandCost;
     private View speedVerdictBox;
 
     private TextView tvDevTotal, tvDevKnown, tvDevUnknown, tvDevVerdict, tvDevAdvice;
