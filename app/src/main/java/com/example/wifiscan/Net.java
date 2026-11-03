@@ -8,17 +8,22 @@ import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.DatagramPacket;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.MulticastSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -70,6 +75,7 @@ final class Net {
 
     static class Dev {
         String ip = "", mac = "", vendor = "", host = "", type = "未知设备", ports = "";
+        String mdns = "";
         int ttl = -1;
         boolean isGw, isMe;
     }
@@ -354,6 +360,185 @@ final class Net {
         return r;
     }
 
+    // ---------------- 分档测速 ----------------
+
+    /**
+     * 分档测速：先用 1 MB 试水，够快就加码到 8 MB、20 MB，
+     * 这样慢网不至于卡在下载 8 MB 上干等 40 秒。
+     */
+    static SpeedResult measureDownloadTiered(Meter m, TierView tv) {
+        int[] tiers = {1000000, 8000000, 20000000};
+        SpeedResult best = null;
+        for (int i = 0; i < tiers.length; i++) {
+            if (tv != null) tv.onTier(i, tiers[i]);
+            SpeedResult r = downloadOnce(tiers[i], m);
+            if (!r.ok) {
+                if (best == null) return r;
+                break;
+            }
+            best = r;
+            if (r.mbps < 6) break;                        // 太慢，别加码了
+            if (i == tiers.length - 1) break;             // 已经最大
+            if (r.ms < 2500) continue;                    // 测得太短，数据不可信，加码
+            if (r.mbps < 30) break;                       // 中速，8 MB 够准了
+        }
+        return best == null ? SpeedResult.fail(new Exception("无吞吐")) : best;
+    }
+
+    interface TierView { void onTier(int index, int bytes); }
+
+    static SpeedResult downloadOnce(int bytes, Meter m) {
+        SpeedResult r = new SpeedResult();
+        HttpURLConnection c = null;
+        try {
+            URL u = new URL("https://speed.cloudflare.com/__down?bytes=" + bytes);
+            c = (HttpURLConnection) u.openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(25000);
+            c.setRequestProperty("User-Agent", "WifiCheck/2.1");
+            c.setRequestProperty("Cache-Control", "no-cache");
+            c.connect();
+            InputStream in = c.getInputStream();
+            byte[] buf = new byte[16384];
+            long got = 0, measured = 0;
+            long t0 = System.currentTimeMillis(), lastTick = 0;
+            int warm = Math.min(WARM_BYTES, bytes / 4);
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                got += n;
+                if (got > warm) {
+                    measured += n;
+                    long el = System.currentTimeMillis() - t0;
+                    if (m != null && el - lastTick >= 160) {
+                        lastTick = el;
+                        double mbps = el <= 0 ? 0 : (measured * 8.0 / 1e6) / (el / 1000.0);
+                        m.onProgress(got, bytes, mbps);
+                    }
+                }
+            }
+            in.close();
+            r.ms = System.currentTimeMillis() - t0;
+            r.bytes = got;
+            r.ok = measured > 0;
+            r.mbps = r.ok && r.ms > 0 ? (measured * 8.0 / 1e6) / (r.ms / 1000.0) : 0;
+        } catch (Exception e) {
+            return SpeedResult.fail(e);
+        } finally {
+            if (c != null) try { c.disconnect(); } catch (Throwable ignored) {}
+        }
+        return r;
+    }
+
+    // ---------------- mDNS 设备发现 ----------------
+
+    /** 常见服务类型：认出 Chromecast、AirPlay、打印机、SMB 共享等。 */
+    private static final String[][] MDNS_SERVICES = {
+            {"_googlecast._tcp.local", "Chromecast / 小米盒子"},
+            {"_airplay._tcp.local", "AirPlay（苹果设备 / 支持投屏的电视）"},
+            {"_raop._tcp.local", "AirPlay 音频"},
+            {"_ipp._tcp.local", "网络打印机（IPP）"},
+            {"_printer._tcp.local", "网络打印机"},
+            {"_smb._tcp.local", "SMB 共享（电脑 / NAS）"},
+            {"_afpovertcp._tcp.local", "苹果文件共享"},
+            {"_spotify-connect._tcp.local", "Spotify 音箱"},
+            {"_hap._tcp.local", "HomeKit 智能设备"},
+            {"_miio._udp.local", "小米 IoT 设备"},
+            {"_http._tcp.local", "网页管理界面"},
+            {"_workstation._tcp.local", "局域网工作站"},
+    };
+
+    /**
+     * 发一轮 mDNS 查询，收集应答里的「服务类型 → 主机名」。
+     * 只做 PTR/SRV 的浅解析，够用来判断设备是什么，不实现完整 DNS 解析器。
+     * 返回 key = 服务类型，value = 该服务出现过的提示文案。
+     */
+    static Map<String, String> mdnsScan(int timeoutMs) {
+        Map<String, String> found = new LinkedHashMap<>();
+        MulticastSocket sock = null;
+        try {
+            sock = new MulticastSocket(null);
+            sock.setReuseAddress(true);
+            sock.bind(new InetSocketAddress(5353));
+            sock.setSoTimeout(400);
+            InetAddress group = InetAddress.getByName("224.0.0.251");
+            sock.joinGroup(group);
+
+            for (String[] svc : MDNS_SERVICES) {
+                byte[] q = buildMdnsQuery(svc[0]);
+                sock.send(new DatagramPacket(q, q.length, group, 5353));
+            }
+
+            long deadline = System.currentTimeMillis() + timeoutMs;
+            byte[] buf = new byte[2048];
+            while (System.currentTimeMillis() < deadline) {
+                DatagramPacket pkt = new DatagramPacket(buf, buf.length);
+                try {
+                    sock.receive(pkt);
+                } catch (SocketTimeoutException te) {
+                    continue;
+                } catch (Throwable t) {
+                    break;
+                }
+                String from = pkt.getAddress() == null ? "" : pkt.getAddress().getHostAddress();
+                String txt = extractNames(pkt.getData(), pkt.getLength());
+                if (TextUtils_isEmpty(txt) || from.isEmpty()) continue;
+                for (String[] svc : MDNS_SERVICES) {
+                    String key = svc[0].replace(".local", "");
+                    if (txt.contains(key)) {
+                        String cur = found.get(from);
+                        found.put(from, TextUtils_isEmpty(cur) ? svc[1] : (cur + " / " + svc[1]));
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            if (sock != null) {
+                try { sock.leaveGroup(InetAddress.getByName("224.0.0.251")); } catch (Throwable ignored) {}
+                try { sock.close(); } catch (Throwable ignored) {}
+            }
+        }
+        return found;
+    }
+
+    private static boolean TextUtils_isEmpty(String s) { return s == null || s.length() == 0; }
+
+    /** 构造一个最小可用的 mDNS 查询包（单问题，PTR，class IN）。 */
+    private static byte[] buildMdnsQuery(String name) {
+        ByteArrayOutputStream bo = new ByteArrayOutputStream();
+        bo.write(0); bo.write(0);            // ID = 0
+        bo.write(0); bo.write(0);            // flags = 0
+        bo.write(0); bo.write(1);            // QDCOUNT = 1
+        bo.write(0); bo.write(0);            // ANCOUNT
+        bo.write(0); bo.write(0);            // NSCOUNT
+        bo.write(0); bo.write(0);            // ARCOUNT
+        for (String part : name.split("\\.")) {
+            byte[] pb = part.getBytes(java.nio.charset.Charset.forName("UTF-8"));
+            bo.write(pb.length);
+            bo.write(pb, 0, pb.length);
+        }
+        bo.write(0);                         // 名字结束
+        bo.write(0); bo.write(12);           // TYPE = PTR
+        bo.write(0); bo.write(1);            // CLASS = IN
+        return bo.toByteArray();
+    }
+
+    /** 把应答包里的可打印片段拼起来，用来做关键词匹配。 */
+    private static String extractNames(byte[] data, int len) {
+        StringBuilder sb = new StringBuilder();
+        StringBuilder cur = new StringBuilder();
+        for (int i = 12; i < len; i++) {
+            int b = data[i] & 0xFF;
+            if (b >= 32 && b < 127) {
+                cur.append((char) b);
+            } else {
+                if (cur.length() >= 3) sb.append(cur).append('\n');
+                cur.setLength(0);
+            }
+        }
+        if (cur.length() >= 3) sb.append(cur);
+        return sb.toString();
+    }
+
     static String errHint(String err) {
         if (err == null) return "";
         String e = err.toLowerCase(Locale.US);
@@ -543,6 +728,15 @@ final class Net {
     static String inferType(Dev d, Set<Integer> open) {
         if (d.isGw) return "路由器 / 光猫";
         if (d.isMe) return "本机（你）";
+        if (!TextUtils_isEmpty(d.mdns)) {
+            String t = d.mdns;
+            if (t.contains("Chromecast")) return "电视 / 盒子（Chromecast）";
+            if (t.contains("AirPlay") || t.contains("苹果")) return "电视 / 盒子（AirPlay）";
+            if (t.contains("打印机")) return "打印机";
+            if (t.contains("SMB") || t.contains("苹果文件共享")) return "电脑 / NAS";
+            if (t.contains("HomeKit") || t.contains("小米 IoT")) return "智能家居";
+            if (t.contains("Spotify")) return "智能音箱";
+        }
         if (open.contains(9100) || open.contains(631) || open.contains(515)) return "打印机";
         if (open.contains(62078)) return "iPhone / iPad";
         if (open.contains(3389) || open.contains(445) || open.contains(139)) return "Windows 电脑";
@@ -586,6 +780,15 @@ final class Net {
         if (type.contains("电视")) return "TV";
         if (type.contains("打印")) return "PR";
         if (type.contains("NAS") || type.contains("服务器")) return "NS";
+        if (type.contains("智能家居") || type.contains("音箱")) return "SH";
         return "??";
+    }
+
+    /** 设备名的短标签，用于卡片副标题。 */
+    static String devTag(Dev d) {
+        if (!TextUtils_isEmpty(d.mdns)) return d.mdns;
+        if (!TextUtils_isEmpty(d.vendor)) return d.vendor;
+        if (!TextUtils_isEmpty(d.host)) return d.host;
+        return "厂商读不到";
     }
 }

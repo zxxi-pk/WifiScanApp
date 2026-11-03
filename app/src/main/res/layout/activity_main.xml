@@ -587,6 +587,55 @@
                                     android:layout_width="0dp"
                                     android:layout_height="wrap_content"
                                     android:layout_weight="1"
+                                    android:text="信号强度时间轴"
+                                    android:textColor="#17223B"
+                                    android:textSize="12sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/tvSignalNow"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:fontFamily="monospace"
+                                    android:text="— dBm"
+                                    android:textColor="#5C6B80"
+                                    android:textSize="12sp" />
+                            </LinearLayout>
+
+                            <com.example.wifiscan.SignalChart
+                                android:id="@+id/chartSignal"
+                                android:layout_width="match_parent"
+                                android:layout_height="112dp"
+                                android:layout_marginTop="10dp" />
+
+                            <TextView
+                                android:id="@+id/tvSignalHint"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="6dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="每秒采一次，能看出信号是稳还是忽高忽低"
+                                android:textColor="#95A0B0"
+                                android:textSize="10sp" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:background="@drawable/card"
+                            android:orientation="vertical"
+                            android:padding="15dp">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
                                     android:text="第一跳  手机 → 路由器"
                                     android:textColor="#17223B"
                                     android:textSize="12sp"
@@ -969,6 +1018,16 @@
                                 android:text="还没测速"
                                 android:textColor="#8A94A6"
                                 android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/tvSpeedTier"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center"
+                                android:layout_marginTop="4dp"
+                                android:text="分档测速：先试 1 MB，够快才加码"
+                                android:textColor="#B0B8C4"
+                                android:textSize="10sp" />
                         </LinearLayout>
 
                         <LinearLayout

@@ -127,6 +127,13 @@ public class MainActivity extends AppCompatActivity {
     private String lastReport = "";
     private int lastScore = 0;
 
+    private SignalChart chartSignal;
+    private TextView tvSignalNow, tvSignalHint, tvSpeedTier;
+    private String tierLabel = "";
+    private final Handler sigHandler = new Handler(Looper.getMainLooper());
+    private boolean sigSampling = false;
+    private Runnable sigTask;
+
     private boolean busy = false;
     private final ExecutorService pool = Executors.newCachedThreadPool();
 
@@ -146,12 +153,53 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         refreshHead();
+        startSignalSampling();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        stopSignalSampling();
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        stopSignalSampling();
         pool.shutdownNow();
+    }
+
+    // ==================== 信号采样 ====================
+
+    private void startSignalSampling() {
+        if (sigSampling) return;
+        sigSampling = true;
+        sigTask = new Runnable() {
+            @Override public void run() {
+                if (!sigSampling) return;
+                Net.WifiBrief w = Net.readWifi(MainActivity.this);
+                if (w.rssi < 0) {
+                    chartSignal.push(w.rssi);
+                    tvSignalNow.setText(w.rssi + " dBm");
+                    int sp = chartSignal.spread();
+                    if (sp >= 15) {
+                        tvSignalHint.setTextColor(0xFFB45309);
+                        tvSignalHint.setText("信号在 " + sp + " dBm 内来回跳，说明连接不稳 —— 换位置或换信道");
+                    } else if (sp > 0) {
+                        tvSignalHint.setTextColor(0xFF95A0B0);
+                        tvSignalHint.setText("采样 " + chartSignal.size() + " 次，波动 " + sp + " dBm，算稳定");
+                    }
+                }
+                sigHandler.postDelayed(this, 1000);
+            }
+        };
+        sigHandler.post(sigTask);
+    }
+
+    private void stopSignalSampling() {
+        sigSampling = false;
+        if (sigTask != null) sigHandler.removeCallbacks(sigTask);
+        sigTask = null;
     }
 
     // ==================== 绑定 ====================
@@ -253,6 +301,10 @@ public class MainActivity extends AppCompatActivity {
 
         ringSpeed = findViewById(R.id.ringSpeed);
         tvSpeedStatus = findViewById(R.id.tvSpeedStatus);
+        tvSpeedTier = findViewById(R.id.tvSpeedTier);
+        chartSignal = findViewById(R.id.chartSignal);
+        tvSignalNow = findViewById(R.id.tvSignalNow);
+        tvSignalHint = findViewById(R.id.tvSignalHint);
         bandDown = findViewById(R.id.bandDown);
         bandUp = findViewById(R.id.bandUp);
         bandCost = findViewById(R.id.bandCost);
@@ -456,9 +508,16 @@ public class MainActivity extends AppCompatActivity {
             // 3) 带宽
             status("第 3/4 步：测下载…");
             startPulse();
-            Net.SpeedResult d = Net.measureDownload((done, total, mbps) -> ui.post(() -> {
+            Net.SpeedResult d = Net.measureDownloadTiered((done, total, mbps) -> ui.post(() -> {
                 ringSpeed.setRunning(true, mbps, fmt("%.1f", mbps));
                 tvSpeedStatus.setText("已下载 " + fmt("%.1f", done / 1048576.0) + " / " + fmt("%.0f", total / 1048576.0) + " MB");
+            }), (idx, bytes) -> ui.post(() -> {
+                String lbl;
+                if (bytes <= 1000000) lbl = "试水 1 MB";
+                else if (bytes <= 8000000) lbl = "1 MB 够快，加码到 8 MB";
+                else lbl = "8 MB 还快，加码到 20 MB";
+                tvSpeedTier.setText("分档测速 · " + lbl);
+                tierLabel = lbl;
             }));
             stopPulse();
             downMbps = d.ok ? d.mbps : -1;
@@ -732,8 +791,7 @@ public class MainActivity extends AppCompatActivity {
         ip.setLayoutParams(plp);
         c.addView(ip);
 
-        String sub = !TextUtils.isEmpty(d.vendor) ? d.vendor
-                : (!TextUtils.isEmpty(d.host) ? d.host : "厂商读不到");
+        String sub = Net.devTag(d);
         TextView vd = new TextView(this);
         vd.setText(sub);
         vd.setTextSize(10);
@@ -846,6 +904,13 @@ public class MainActivity extends AppCompatActivity {
         sb.append("网关：").append(gateway).append("   本机：").append(localIp).append("\n");
         sb.append("总分：").append(lastScore).append("/100\n\n");
 
+        sb.append("—— 信号 ——\n");
+        sb.append("当前 ").append(wifi.rssi).append(" dBm");
+        if (chartSignal != null && chartSignal.size() >= 2) {
+            sb.append("，采样 ").append(chartSignal.size()).append(" 次，波动 ").append(chartSignal.spread()).append(" dBm");
+        }
+        sb.append("\n\n");
+
         sb.append("—— 延迟 ——\n");
         sb.append("第一跳（手机→路由器）：").append(statGw == null ? "无数据" : gwText(statGw)).append("\n");
         sb.append("出网（手机→外网）：").append(statWan == null ? "无数据" : gwText(statWan)).append("\n");
@@ -860,6 +925,7 @@ public class MainActivity extends AppCompatActivity {
         sb.append("—— 带宽 ——\n");
         sb.append("下行：").append(downMbps < 0 ? "失败" : fmt("%.1f Mbps", downMbps)).append("\n");
         sb.append("上行：").append(upMbps < 0 ? "失败" : fmt("%.1f Mbps", upMbps)).append("\n");
+        if (!TextUtils.isEmpty(tierLabel)) sb.append("档位：").append(tierLabel).append("\n");
         sb.append(tvSpeedVerdict.getText()).append("\n\n");
 
         sb.append("—— 设备 ——\n");
@@ -867,7 +933,8 @@ public class MainActivity extends AppCompatActivity {
         if (devices != null) {
             for (Net.Dev d : devices) {
                 sb.append("  ").append(d.ip).append("  ").append(d.type);
-                if (!TextUtils.isEmpty(d.vendor)) sb.append("  ").append(d.vendor);
+                String tg = Net.devTag(d);
+                if (!TextUtils.isEmpty(tg) && !"厂商读不到".equals(tg)) sb.append("  ").append(tg);
                 sb.append("\n");
             }
         }
@@ -1011,6 +1078,26 @@ public class MainActivity extends AppCompatActivity {
         List<String> ips = new ArrayList<>(arp.keySet());
         Collections.sort(ips, (a, b) -> Integer.compare(Net.ipInt(a), Net.ipInt(b)));
 
+        // mDNS：认出 Chromecast / AirPlay / 打印机 / 智能家居这类靠端口认不出的设备
+        status("问一圈 mDNS 设备名…");
+        WifiManager.MulticastLock ml = null;
+        final java.util.Map<String, String> mdns;
+        try {
+            if (wm != null) {
+                ml = wm.createMulticastLock("wifiscan-mdns");
+                ml.setReferenceCounted(false);
+                ml.acquire();
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            mdns = Net.mdnsScan(2600);
+        } finally {
+            if (ml != null) {
+                try { if (ml.isHeld()) ml.release(); } catch (Throwable ignored) {}
+            }
+        }
+
         ExecutorService idp = Executors.newFixedThreadPool(12);
         for (String ip : ips) {
             idp.execute(() -> {
@@ -1019,6 +1106,7 @@ public class MainActivity extends AppCompatActivity {
                 d.mac = arp.get(ip) == null ? "" : arp.get(ip);
                 d.isGw = ip.equals(gw);
                 d.isMe = ip.equals(me);
+                d.mdns = mdns.get(ip) == null ? "" : mdns.get(ip);
                 Set<Integer> open = Net.probePorts(ip);
                 d.ttl = Net.pingTtl(ip);
                 d.host = Net.resolveHost(ip);
