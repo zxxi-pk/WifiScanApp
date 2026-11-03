@@ -2,11 +2,23 @@
 
 房东宽带慢、卡、转圈，但手上只有手机？这个 App 用手机把「到底哪一段慢」测出来。
 
-**下载安装包（v2.0）**
+**下载安装包（v2.1）**
 
-https://github.com/zxxi-pk/WifiScanApp/releases/download/v2.0/WiFiCheck-v2.0.apk
+https://github.com/zxxi-pk/WifiScanApp/releases/download/v2.1/WiFiCheck-v2.1.apk
 
 > Android 手机。装之前如果装过旧版，**先卸载旧版**（调试签名每次重新生成，覆盖安装会报「应用未安装」）。
+
+---
+
+## v2.1 新增（借鉴开源项目）
+
+| 功能 | 学自 | 做什么 |
+|---|---|---|
+| 信号强度时间轴 | WiFiAnalyzer | 每秒采一次 dBm 画折线，波动 ≥15 dBm 就提示"连接不稳" |
+| 分档测速 | Flare | 先下 1 MB 试水，够快才加码 8 MB、20 MB；慢网不用干等 40 秒 |
+| mDNS 设备发现 | samurai-scan | 问 `_googlecast` / `_airplay` / `_ipp` / `_miio` 等 12 类服务，认出 Chromecast、投屏电视、网络打印机、智能家居 |
+
+> 只借鉴思路自己重写，没抄代码。WiFiAnalyzer 是 GPL-3.0、LibreSpeed 是 LGPL-3.0，直接搬会传染许可证。
 
 ---
 
@@ -58,7 +70,7 @@ https://github.com/zxxi-pk/WifiScanApp/releases/download/v2.0/WiFiCheck-v2.0.apk
 
 | 分段 | 图形 | 说什么 |
 |---|---|---|
-| 延迟 | 两条横向色带（第一跳 / 出网）+ 抖动/丢包分栏 | 卡在手机↔路由器，还是路由器↔外网 |
+| 延迟 | 两条横向色带（第一跳 / 出网）+ 抖动/丢包分栏 + 信号时间轴折线 | 卡在手机↔路由器，还是路由器↔外网；信号稳不稳 |
 | 信道 | 13 根柱子，当前信道深蓝、建议信道绿框 | 2.4G 该改成 1/6/11 哪个 |
 | 带宽 | 170px 测速圆环 + 三行对比条 | 下行/上行/耗时实测值 |
 | 设备 | 统计条 + 2 列设备卡 | 谁在线、认不认识、要不要踢 |
@@ -81,12 +93,13 @@ https://github.com/zxxi-pk/WifiScanApp/releases/download/v2.0/WiFiCheck-v2.0.apk
 
 ---
 
-## 设备识别靠四条判据
+## 设备识别靠五条判据
 
-1. **端口**：9100/631/515→打印机；62078→iPhone/iPad；3389/445/139→Windows；554/8009/7000/5000→电视盒子；22→NAS
-2. **主机名**：`iphone`/`redmi`/`macbook`/`DESKTOP-xxx` 关键词
-3. **TTL**：≥250→网络设备；≥120→Windows；≥60→手机
-4. **HTTP 标题 / Server 头**：路由、打印机、盒子后台页面标题里有型号
+1. **mDNS 服务**：`_googlecast`→Chromecast/盒子；`_airplay`→投屏电视；`_ipp`/`_printer`→打印机；`_smb`→电脑/NAS；`_hap`/`_miio`→智能家居
+2. **端口**：9100/631/515→打印机；62078→iPhone/iPad；3389/445/139→Windows；554/8009/7000/5000→电视盒子；22→NAS
+3. **主机名**：`iphone`/`redmi`/`macbook`/`DESKTOP-xxx` 关键词
+4. **TTL**：≥250→网络设备；≥120→Windows；≥60→手机
+5. **HTTP 标题 / Server 头**：路由、打印机、盒子后台页面标题里有型号
 
 **踢人只能在路由器后台做。** 工具页点「打开路由器后台」→ 找「已连接设备 / DHCP 客户端」→ 对上 IP 或 MAC → 禁用。
 
