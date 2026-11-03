@@ -310,44 +310,7 @@ final class Net {
     private static final int WARM_BYTES = 1000000;
 
     static SpeedResult measureDownload(Meter m) {
-        SpeedResult r = new SpeedResult();
-        HttpURLConnection c = null;
-        try {
-            URL u = new URL("https://speed.cloudflare.com/__down?bytes=" + DOWN_BYTES);
-            c = (HttpURLConnection) u.openConnection();
-            c.setConnectTimeout(8000);
-            c.setReadTimeout(20000);
-            c.setRequestProperty("User-Agent", "WifiCheck/2.0");
-            c.setRequestProperty("Cache-Control", "no-cache");
-            c.connect();
-            InputStream in = c.getInputStream();
-            byte[] buf = new byte[16384];
-            long got = 0, measured = 0;
-            long t0 = System.currentTimeMillis(), lastTick = 0;
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                got += n;
-                if (got > WARM_BYTES) {
-                    measured += n;
-                    long el = System.currentTimeMillis() - t0;
-                    if (m != null && el - lastTick >= 180) {
-                        lastTick = el;
-                        double mbps = el <= 0 ? 0 : (measured * 8.0 / 1e6) / (el / 1000.0);
-                        m.onProgress(got, DOWN_BYTES, mbps);
-                    }
-                }
-            }
-            in.close();
-            r.ms = System.currentTimeMillis() - t0;
-            r.bytes = got;
-            r.ok = measured > 0;
-            r.mbps = r.ok && r.ms > 0 ? (measured * 8.0 / 1e6) / (r.ms / 1000.0) : 0;
-        } catch (Exception e) {
-            return SpeedResult.fail(e);
-        } finally {
-            if (c != null) try { c.disconnect(); } catch (Throwable ignored) {}
-        }
-        return r;
+        return measureDownloadTiered(m, null);
     }
 
     static SpeedResult measureUpload(Meter m) {
@@ -422,17 +385,54 @@ final class Net {
 
     interface TierView { void onTier(int index, int bytes); }
 
+    /**
+     * 测速源。Cloudflare 在国内没有节点，测出来的是国际出口带宽，
+     * 会比自己宽带低一大截，所以国内教育网镜像优先，Cloudflare 只做兜底。
+     * 镜像都用 Range 请求只取需要的字节数，不整文件下载。
+     */
+    private static final String[][] MIRRORS = {
+            {"https://mirrors.bfsu.edu.cn/speedtest/1000mb.bin", "北外镜像"},
+            {"https://mirrors.tuna.tsinghua.edu.cn/speedtest/1000mb.bin", "清华 TUNA"},
+            {"https://mirrors.ustc.edu.cn/ubuntu-releases/22.04/ubuntu-22.04.5-desktop-amd64.iso", "中科大镜像"},
+            {"https://speed.cloudflare.com/__down?bytes=", "Cloudflare"},
+    };
+
+    /** 当前用的测速源名称，给界面显示。 */
+    static volatile String lastMirror = "";
+
     static SpeedResult downloadOnce(int bytes, Meter m) {
+        SpeedResult last = null;
+        for (String[] mir : MIRRORS) {
+            SpeedResult r = fetchBytes(mir[0], mir[1], bytes, m);
+            if (r.ok) {
+                lastMirror = mir[1];
+                return r;
+            }
+            last = r;
+        }
+        return last == null ? SpeedResult.fail(new Exception("全部测速源不可达")) : last;
+    }
+
+    private static SpeedResult fetchBytes(String base, String label, int bytes, Meter m) {
         SpeedResult r = new SpeedResult();
         HttpURLConnection c = null;
         try {
-            URL u = new URL("https://speed.cloudflare.com/__down?bytes=" + bytes);
+            boolean isCf = base.endsWith("bytes=");
+            URL u = new URL(isCf ? base + bytes : base);
             c = (HttpURLConnection) u.openConnection();
-            c.setConnectTimeout(8000);
-            c.setReadTimeout(25000);
-            c.setRequestProperty("User-Agent", "WifiCheck/2.1");
+            c.setConnectTimeout(6000);
+            c.setReadTimeout(20000);
+            c.setRequestProperty("User-Agent", "WifiCheck/2.3");
             c.setRequestProperty("Cache-Control", "no-cache");
+            if (!isCf) {
+                c.setRequestProperty("Range", "bytes=0-" + (bytes - 1));
+            }
             c.connect();
+            int code = c.getResponseCode();
+            if (code < 200 || code >= 400) {
+                r.err = label + " HTTP " + code;
+                return r;
+            }
             InputStream in = c.getInputStream();
             byte[] buf = new byte[16384];
             long got = 0, measured = 0;
@@ -447,17 +447,21 @@ final class Net {
                     if (m != null && el - lastTick >= 160) {
                         lastTick = el;
                         double mbps = el <= 0 ? 0 : (measured * 8.0 / 1e6) / (el / 1000.0);
-                        m.onProgress(got, bytes, mbps);
+                        m.onProgress(Math.min(got, bytes), bytes, mbps);
                     }
                 }
+                if (got >= bytes) break;
             }
             in.close();
             r.ms = System.currentTimeMillis() - t0;
             r.bytes = got;
             r.ok = measured > 0;
             r.mbps = r.ok && r.ms > 0 ? (measured * 8.0 / 1e6) / (r.ms / 1000.0) : 0;
+            if (!r.ok) r.err = label + " 无数据";
         } catch (Exception e) {
-            return SpeedResult.fail(e);
+            r.ok = false;
+            r.err = label + " " + e.getClass().getSimpleName();
+            return r;
         } finally {
             if (c != null) try { c.disconnect(); } catch (Throwable ignored) {}
         }

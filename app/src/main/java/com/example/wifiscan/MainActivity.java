@@ -746,21 +746,22 @@ public class MainActivity extends AppCompatActivity {
         if (d.ok) {
             ringSpeed.setValue(d.mbps, fmt("%.1f", d.mbps), "Mbps 下行");
             tvDownVal.setText(fmt("%.1f Mbps", d.mbps));
-            bandDown.setRatio(Math.min(1, d.mbps / 60.0));
+            bandDown.setRatio(Math.min(1, d.mbps / 100.0));
             tvCostVal.setText(fmt("%.1f 秒", d.ms / 1000.0));
             bandCost.setRatio(Math.min(1, d.ms / 15000.0));
-            tvSpeedStatus.setText(fmt("下载 %.1f Mbps · 用时 %.1f 秒", d.mbps, d.ms / 1000.0));
-            tint(speedVerdictBox, d.mbps < 8 ? R.drawable.tint_red : (d.mbps < 25 ? R.drawable.tint_amber : R.drawable.tint_green));
-            tvSpeedVerdict.setTextColor(d.mbps < 8 ? C_BAD : (d.mbps < 25 ? C_WARN : C_OK));
-            tvSpeedVerdict.setText(d.mbps < 8 ? "带宽严重不足" : (d.mbps < 25 ? "带宽偏低" : "带宽够用"));
-            tvSpeedAdvice.setTextColor(d.mbps < 8 ? 0xFF7A3B36 : (d.mbps < 25 ? 0xFF7A5410 : 0xFF0B6B4C));
-            tvSpeedAdvice.setText(d.mbps < 8
-                    ? "10 Mbps 以下：1080p 都卡。先看是不是有人在下片/挂机，再拿数据找房东。"
-                    : (d.mbps < 25 ? "25 Mbps 以下：看 1080p 勉强，多人同时用就卡。尽量错峰。"
-                    : "够看 4K。卡的话不是带宽问题，去看「设备」那一项。"));
+            tvSpeedStatus.setText(fmt("下载 %.1f Mbps · 用时 %.1f 秒 · 源 %s", d.mbps, d.ms / 1000.0,
+                    TextUtils.isEmpty(Net.lastMirror) ? "—" : Net.lastMirror));
+            tint(speedVerdictBox, d.mbps < 20 ? R.drawable.tint_red : (d.mbps < 50 ? R.drawable.tint_amber : R.drawable.tint_green));
+            tvSpeedVerdict.setTextColor(d.mbps < 20 ? C_BAD : (d.mbps < 50 ? C_WARN : C_OK));
+            tvSpeedVerdict.setText(d.mbps < 20 ? "带宽严重不足" : (d.mbps < 50 ? "带宽偏低" : "带宽够用"));
+            tvSpeedAdvice.setTextColor(d.mbps < 20 ? 0xFF7A3B36 : (d.mbps < 50 ? 0xFF7A5410 : 0xFF0B6B4C));
+            tvSpeedAdvice.setText(d.mbps < 20
+                    ? "20 Mbps 以下：1080p 都卡。先看是不是有人在下片/挂机，再拿数据找房东。"
+                    : (d.mbps < 50 ? "50 Mbps 以下：单看 1080p 够，多人同时用就卡，尽量错峰。"
+                    : "够看 4K 还有余。卡的话不是带宽问题，去看「设备」那一项。"));
             tvOvDown.setText(fmt("%.1f", d.mbps));
-            tvOvDownState.setText(d.mbps < 8 ? "严重不足" : (d.mbps < 25 ? "偏低" : "够用"));
-            tvOvDownState.setTextColor(d.mbps < 8 ? C_BAD : (d.mbps < 25 ? C_WARN : C_OK));
+            tvOvDownState.setText(d.mbps < 20 ? "严重不足" : (d.mbps < 50 ? "偏低" : "够用"));
+            tvOvDownState.setTextColor(d.mbps < 20 ? C_BAD : (d.mbps < 50 ? C_WARN : C_OK));
         } else {
             ringSpeed.setValue(0, "—", "失败");
             tvSpeedStatus.setText("下载没测出来：" + Net.errHint(d.err));
@@ -953,7 +954,7 @@ public class MainActivity extends AppCompatActivity {
 
         int sLat = clampScore(avg, 20, 200);
         int sLoss = clampScore(loss, 0, 20);
-        int sDown = downMbps < 0 ? 0 : clampScoreInv(downMbps, 5, 50);
+        int sDown = downMbps < 0 ? 0 : clampScoreInv(downMbps, 10, 100);
         int sDev = strayCount == 0 ? 25 : (strayCount == 1 ? 17 : (strayCount == 2 ? 8 : 0));
 
         lastScore = sLat + sLoss + sDown + sDev;
