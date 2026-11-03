@@ -452,6 +452,34 @@ public class MainActivity extends AppCompatActivity {
         segStyle(segCh, s == 1);
         segStyle(segSpeed, s == 2);
         segStyle(segDev, s == 3);
+        if (s == 2) refreshSpeedPage();
+    }
+
+    /**
+     * 进带宽页时，用内存里的真实结果重画一遍。
+     * 圆环曾经被「上传阶段」借用过，离开页面时可能残留上传值，
+     * 这里做一次兜底刷新，保证看到的一定是下行结果。
+     */
+    private void refreshSpeedPage() {
+        if (downMbps > 0) {
+            ringSpeed.setValue(downMbps, fmt("%.1f", spd(downMbps)), spdUnit());
+            tvDownVal.setText(spdText(downMbps));
+            bandDown.setRatio(Math.min(1, downMbps / 100.0));
+            if (downMs > 0) {
+                tvCostVal.setText(fmt("%.1f 秒", downMs / 1000.0));
+                bandCost.setRatio(Math.min(1, downMs / 15000.0));
+            }
+            tvSpeedStatus.setText(upMbps > 0
+                    ? fmt("下行 %s · 上行 %s", spdText(downMbps), spdText(upMbps))
+                    : fmt("下载 %s%s", spdText(downMbps),
+                        TextUtils.isEmpty(Net.lastMirror) ? "" : " · 源 " + Net.lastMirror));
+        }
+        if (upMbps > 0) {
+            tvUpVal.setText(spdText(upMbps));
+            bandUp.setRatio(Math.min(1, upMbps / 30.0));
+        }
+        if (!TextUtils.isEmpty(tierLabel)) tvSpeedTier.setText("分档测速 · " + tierLabel);
+        paintUnitSwitch();
     }
 
     private void segStyle(TextView t, boolean on) {
@@ -617,7 +645,12 @@ public class MainActivity extends AppCompatActivity {
                 pbRun.setProgress((int) Math.min(80, 76 + 4 * done / Math.max(1, total)));
             }));
             upMbps = u.ok ? u.mbps : -1;
-            ui.post(() -> paintUp(u));
+            ui.post(() -> {
+                paintUp(u);
+                // 上传阶段复用了同一个圆环，结束后必须把环还原成「下行」的值，
+                // 否则诊断页带宽圆环会一直停在上传速度上（bug: 要手动切单位才会变回正确值）
+                ui.postDelayed(this::restoreDownRing, 60);
+            });
             stepDone(3);
 
             // 4) 设备 80→100
@@ -680,16 +713,31 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void startPulse() {
-        ui.post(new Runnable() {
-            @Override public void run() {
-                ringSpeed.pulse();
-                if (busy) ui.postDelayed(this, 120);
-            }
-        });
+    private final Runnable pulseTask = new Runnable() {
+        @Override public void run() {
+            ringSpeed.pulse();
+            if (busy) ui.postDelayed(this, 120);
+        }
+    };
+
+    private void startPulse() { ui.post(pulseTask); }
+
+    /** 真正停掉脉冲，避免它一直空转。 */
+    private void stopPulse() {
+        ui.removeCallbacks(pulseTask);
+        ringSpeed.pulse();
     }
 
-    private void stopPulse() { ringSpeed.pulse(); }
+    /** 上传阶段借用了测速圆环，测完必须把环还原成下行值。 */
+    private void restoreDownRing() {
+        if (downMbps > 0) {
+            ringSpeed.setValue(downMbps, fmt("%.1f", spd(downMbps)), spdUnit());
+            tvSpeedStatus.setText(fmt("下行 %s · 上行 %s", spdText(downMbps),
+                    upMbps > 0 ? spdText(upMbps) : "失败"));
+        } else {
+            ringSpeed.setValue(0, "—", "失败");
+        }
+    }
 
     private void status(String s) { ui.post(() -> tvRunStatus.setText(s)); }
 
