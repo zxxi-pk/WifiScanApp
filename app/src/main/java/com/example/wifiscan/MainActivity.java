@@ -1072,6 +1072,21 @@ public class MainActivity extends AppCompatActivity {
         vd.setLayoutParams(vlp);
         c.addView(vd);
 
+        // 判定依据：告诉用户「凭什么说它是 XX」，认不出时也说明为什么
+        if (!TextUtils.isEmpty(d.reason)) {
+            TextView rs = new TextView(this);
+            rs.setText(d.reason);
+            rs.setTextSize(9);
+            rs.setTextColor(C_DIM);
+            rs.setMaxLines(2);
+            rs.setEllipsize(TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            rlp.topMargin = dp(3);
+            rs.setLayoutParams(rlp);
+            c.addView(rs);
+        }
+
         // 疑似占用带宽：低/中/高 + 推断依据（不给假 Mbps）
         if (!d.isGw && !d.isMe) {
             int col = d.suspect >= 2 ? C_BAD : (d.suspect >= 1 ? C_WARN : C_OK);
@@ -1218,8 +1233,9 @@ public class MainActivity extends AppCompatActivity {
             for (Net.Dev d : devices) {
                 sb.append("  ").append(d.ip).append("  ").append(d.type);
                 String tg = Net.devTag(d);
-                if (!TextUtils.isEmpty(tg) && !"厂商读不到".equals(tg)) sb.append("  ").append(tg);
+                if (!TextUtils.isEmpty(tg)) sb.append("  ").append(tg);
                 sb.append("\n");
+                if (!TextUtils.isEmpty(d.reason)) sb.append("      依据：").append(d.reason).append("\n");
             }
         }
         sb.append(tvDevVerdict.getText()).append("\n\n");
@@ -1427,6 +1443,14 @@ public class MainActivity extends AppCompatActivity {
             ui.post(() -> tvDevScanState.setText("mDNS 认出 " + m + " 台，正在补全信息…"));
         }
 
+        // UPnP / SSDP：这一步是「认出型号」的关键，电视/盒子/路由/打印机都会应答
+        ui.post(() -> tvDevScanState.setText("正在探测设备型号（UPnP）…"));
+        final java.util.Map<String, Net.SsdpInfo> ssdp = Net.ssdpScan(2200);
+        if (!ssdp.isEmpty()) {
+            final int s2 = ssdp.size();
+            ui.post(() -> tvDevScanState.setText("UPnP 认出 " + s2 + " 台设备型号，正在补全…"));
+        }
+
         // ④ 识别阶段也限时，超时就用手上已有的结果，绝不空手而归
         ExecutorService idp = Executors.newFixedThreadPool(24);
         for (String ip : ips) {
@@ -1435,20 +1459,34 @@ public class MainActivity extends AppCompatActivity {
                     Net.Dev d = new Net.Dev();
                     d.ip = ip;
                     d.mac = arp.get(ip) == null ? "" : arp.get(ip);
+                    d.macHidden = TextUtils.isEmpty(d.mac);
                     d.isGw = ip.equals(gw);
                     d.isMe = ip.equals(me);
                     d.mdns = mdns.get(ip) == null ? "" : mdns.get(ip);
+
+                    // UPnP / SSDP：电视、盒子、路由、NAS、打印机靠这个认型号
+                    Net.SsdpInfo si = ssdp.get(ip);
+                    if (si != null) {
+                        d.upnpName = si.name;
+                        d.model = si.model;
+                        if (TextUtils.isEmpty(d.vendor) && !TextUtils.isEmpty(si.brand)) d.vendor = si.brand;
+                        if (TextUtils.isEmpty(d.model) && !TextUtils.isEmpty(si.server)) d.model = firstWord(si.server);
+                    }
+
+                    // NetBIOS：Windows 电脑的机器名，比反查 DNS 靠谱
+                    if (!d.isGw && !d.isMe) d.netbios = Net.netbiosName(ip, 400);
+
                     Set<Integer> open = Net.probePorts(ip);
                     d.ttl = Net.pingTtl(ip);
                     d.host = Net.resolveHost(ip);
-                    d.vendor = Net.ouiVendor(d.mac);
+                    if (TextUtils.isEmpty(d.vendor)) d.vendor = Net.ouiVendor(d.mac);
                     d.type = Net.inferType(d, open);
                     Net.computeSuspect(d, open);
                     if (open != null && !open.isEmpty()) {
                         StringBuilder sb = new StringBuilder();
                         for (Integer x : open) { if (sb.length() > 0) sb.append(","); sb.append(x); }
                         d.ports = sb.toString();
-                        if (open.contains(80)) {
+                        if (open.contains(80) && TextUtils.isEmpty(d.model)) {
                             String t = Net.httpTitle(ip, 80);
                             if (!TextUtils.isEmpty(t) && TextUtils.isEmpty(d.vendor)) d.vendor = t;
                         }
@@ -1489,8 +1527,20 @@ public class MainActivity extends AppCompatActivity {
         return out;
     }
 
-    private static int freqToCh(int freq) {
-        if (freq >= 2412 && freq <= 2484) return (freq - 2407) / 5;
+    /** 从 "Linux/3.14 UPnP/1.0 MiBox/1.0" 里抠出有意义的那个词，跳过 Linux/UPnP。 */
+    private static String firstWord(String server) {
+        if (TextUtils.isEmpty(server)) return "";
+        String[] parts = server.trim().split("[\\s/]+");
+        for (String p : parts) {
+            String lp = p.toLowerCase(Locale.US);
+            if (lp.equals("linux") || lp.equals("upnp") || lp.equals("http") || lp.equals("android")
+                    || lp.equals("darwin") || lp.equals("windows") || lp.equals("1.0") || lp.equals("1.1")) continue;
+            if (p.length() >= 3 && !p.matches("[0-9.]+")) return p.length() > 24 ? p.substring(0, 24) : p;
+        }
+        return server.length() > 24 ? server.substring(0, 24) : server;
+    }
+
+    private static int freqToCh(int freq) {        if (freq >= 2412 && freq <= 2484) return (freq - 2407) / 5;
         if (freq >= 5000) return 100 + (freq - 5000) / 5;
         return -1;
     }

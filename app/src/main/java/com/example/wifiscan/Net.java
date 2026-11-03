@@ -13,6 +13,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -82,6 +83,18 @@ final class Net {
         int suspect = 0;
         /** 推断依据，给用户看的实话。 */
         String suspectWhy = "";
+
+        // ---- 指纹证据（v2.7）----
+        /** 厂商识别出的型号，如 "MI TV 4A"、"DESKTOP-ABC"。 */
+        String model = "";
+        /** UPnP 的 friendlyName，如 "客厅电视"。 */
+        String upnpName = "";
+        /** Windows / Samba 机器名。 */
+        String netbios = "";
+        /** 判定依据，逐条可读。 */
+        String reason = "";
+        /** MAC 是否被系统屏蔽（Android 10+ 常态）。 */
+        boolean macHidden = false;
     }
 
     /** 用可观测的间接信号推断「这台设备像不像在占带宽」。
@@ -636,6 +649,202 @@ final class Net {
 
     private static boolean TextUtils_isEmpty(String s) { return s == null || s.length() == 0; }
 
+    // ---------------- SSDP / UPnP 设备发现 ----------------
+
+    /** 一台设备从 SSDP 拿到的线索。 */
+    static class SsdpInfo {
+        String server = "";     // SERVER 头，如 "Linux/3.14 UPnP/1.0 MiBox/1.0"
+        String location = "";   // 设备描述 XML 地址
+        String st = "";         // 服务类型，能直接看出是媒体渲染器还是打印机
+        String name = "";       // 描述 XML 里的 friendlyName，如「客厅电视」
+        String model = "";      // 描述 XML 里的 modelName，如「MI TV 4A」
+        String brand = "";      // 描述 XML 里的 manufacturer
+    }
+
+    /**
+     * 发 SSDP M-SEARCH（239.255.255.250:1900）收集应答。
+     * 这是比 MAC 更可靠的识别手段：电视、盒子、路由、NAS、打印机、智能音箱都会答，
+     * 而且 SERVER 头和 description.xml 里直接带型号，MAC 被系统屏蔽也照样认得出。
+     */
+    static Map<String, SsdpInfo> ssdpScan(int timeoutMs) {
+        Map<String, SsdpInfo> found = new LinkedHashMap<>();
+        DatagramSocket sock = null;
+        try {
+            sock = new DatagramSocket();
+            sock.setSoTimeout(350);
+            InetAddress group = InetAddress.getByName("239.255.255.250");
+
+            String msg = "M-SEARCH * HTTP/1.1\r\n"
+                    + "HOST: 239.255.255.250:1900\r\n"
+                    + "MAN: \"ssdp:discover\"\r\n"
+                    + "MX: 2\r\n"
+                    + "ST: ssdp:all\r\n"
+                    + "\r\n";
+            byte[] payload = msg.getBytes("UTF-8");
+            // 组播丢包很常见，发三遍
+            for (int i = 0; i < 3; i++) {
+                sock.send(new DatagramPacket(payload, payload.length, group, 1900));
+                try { Thread.sleep(90); } catch (InterruptedException ignored) {}
+            }
+
+            long deadline = System.currentTimeMillis() + timeoutMs;
+            byte[] buf = new byte[4096];
+            while (System.currentTimeMillis() < deadline) {
+                DatagramPacket pkt = new DatagramPacket(buf, buf.length);
+                try {
+                    sock.receive(pkt);
+                } catch (SocketTimeoutException te) {
+                    continue;
+                } catch (Throwable t) {
+                    break;
+                }
+                String from = pkt.getAddress() == null ? "" : pkt.getAddress().getHostAddress();
+                if (from.isEmpty()) continue;
+                String text = new String(pkt.getData(), 0, pkt.getLength(), "UTF-8");
+                String low = text.toLowerCase(Locale.US);
+                if (!low.contains("http/1.1 200") && !low.contains("server:")) continue;
+
+                SsdpInfo info = found.get(from);
+                if (info == null) {
+                    info = new SsdpInfo();
+                    found.put(from, info);
+                }
+                String srv = headerValue(text, "SERVER");
+                if (!TextUtils_isEmpty(srv)) info.server = srv;
+                String loc = headerValue(text, "LOCATION");
+                if (!TextUtils_isEmpty(loc)) info.location = loc;
+                String st = headerValue(text, "ST");
+                if (TextUtils_isEmpty(st)) st = headerValue(text, "NT");
+                if (!TextUtils_isEmpty(st)) info.st = st;
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            if (sock != null) try { sock.close(); } catch (Throwable ignored) {}
+        }
+
+        // 有 LOCATION 的再拉一次设备描述 XML，拿 friendlyName / modelName / manufacturer
+        for (SsdpInfo info : found.values()) {
+            if (TextUtils_isEmpty(info.location)) continue;
+            fillFromDescription(info);
+        }
+        return found;
+    }
+
+    /** 取 HTTP 应答里的某个头，大小写不敏感。 */
+    private static String headerValue(String text, String key) {
+        if (text == null) return "";
+        String[] lines = text.split("\r?\n");
+        String k = key.toLowerCase(Locale.US) + ":";
+        for (String line : lines) {
+            String t = line.trim();
+            if (t.toLowerCase(Locale.US).startsWith(k)) {
+                return t.substring(k.length()).trim();
+            }
+        }
+        return "";
+    }
+
+    /** 拉 description.xml，取友好名称与型号。 */
+    private static void fillFromDescription(SsdpInfo info) {
+        HttpURLConnection c = null;
+        try {
+            URL u = new URL(info.location);
+            c = (HttpURLConnection) u.openConnection();
+            c.setConnectTimeout(800);
+            c.setReadTimeout(1200);
+            c.setRequestProperty("User-Agent", "Mozilla/5.0 WifiCheck/2.7");
+            c.connect();
+            InputStream in = c.getInputStream();
+            byte[] buf = new byte[2048];
+            int n, total = 0;
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            while ((n = in.read(buf)) > 0 && total < 12000) {
+                bo.write(buf, 0, n);
+                total += n;
+            }
+            in.close();
+            String xml = new String(bo.toByteArray(), "UTF-8");
+            info.name = tag(xml, "friendlyName");
+            info.model = tag(xml, "modelName");
+            info.brand = tag(xml, "manufacturer");
+        } catch (Throwable ignored) {
+        } finally {
+            if (c != null) try { c.disconnect(); } catch (Throwable ignored) {}
+        }
+    }
+
+    private static String tag(String xml, String name) {
+        try {
+            Matcher m = Pattern.compile("<" + name + "[^>]*>(.*?)</" + name + ">",
+                    Pattern.DOTALL | Pattern.CASE_INSENSITIVE).matcher(xml);
+            if (m.find()) {
+                String v = m.group(1).replaceAll("<[^>]+>", "").replaceAll("\\s+", " ").trim();
+                return v.length() > 40 ? v.substring(0, 40) : v;
+            }
+        } catch (Throwable ignored) {}
+        return "";
+    }
+
+    // ---------------- NetBIOS 名称查询 ----------------
+
+    /**
+     * 问一下 Udp 137 的 NetBIOS 名字。Windows 电脑必答，能直接拿到机器名
+     * （如 DESKTOP-8ABC123），比反查 DNS 靠谱得多 —— 家用路由器基本不提供 PTR。
+     */
+    static String netbiosName(String ip, int timeoutMs) {
+        DatagramSocket sock = null;
+        try {
+            byte[] q = new byte[50];
+            q[0] = (byte) 0x82; q[1] = 0x28;          // 随意的事务 ID
+            q[2] = 0x00; q[3] = 0x00;                 // flags
+            q[4] = 0x00; q[5] = 0x01;                 // QDCOUNT = 1
+            // 4..11 已在上面设为 0，其余计数字段保持 0
+            // 编码后的 "*" 查询名：长度 32 的字符编码
+            int p = 12;
+            q[p++] = 0x20;
+            for (int i = 0; i < 32; i++) q[p++] = 0x43;   // 'C'，即「*」的编码
+            q[p++] = 0x00;                                 // 名字结束
+            q[p++] = 0x00; q[p++] = 0x21;                  // TYPE = NBSTAT
+            q[p++] = 0x00; q[p++] = 0x01;                  // CLASS = IN
+
+            sock = new DatagramSocket();
+            sock.setSoTimeout(timeoutMs);
+            sock.send(new DatagramPacket(q, p, InetAddress.getByName(ip), 137));
+
+            byte[] buf = new byte[1024];
+            DatagramPacket pkt = new DatagramPacket(buf, buf.length);
+            sock.receive(pkt);
+            int len = pkt.getLength();
+            if (len < 57) return "";
+            int names = buf[56] & 0xFF;
+            if (names <= 0) return "";
+            String best = "";
+            for (int i = 0; i < names; i++) {
+                int off = 57 + i * 18;
+                if (off + 15 > len) break;
+                StringBuilder sb = new StringBuilder();
+                for (int k = 0; k < 15; k++) {
+                    int ch = buf[off + k] & 0xFF;
+                    if (ch == 0x20) break;            // 空格补齐，名字到此为止
+                    if (ch < 32 || ch > 126) { sb.setLength(0); break; }
+                    sb.append((char) ch);
+                }
+                int suffix = buf[off + 15] & 0xFF;
+                String nm = sb.toString().trim();
+                if (nm.isEmpty()) continue;
+                // 0x00 = 工作站名（就是机器名），0x20 = 文件服务，优先取 0x00
+                if (suffix == 0x00) return nm;
+                if (best.isEmpty() && suffix == 0x20) best = nm;
+            }
+            return best;
+        } catch (Throwable e) {
+            return "";
+        } finally {
+            if (sock != null) try { sock.close(); } catch (Throwable ignored) {}
+        }
+    }
+
+
     /** 构造一个最小可用的 mDNS 查询包（单问题，PTR，class IN）。 */
     private static byte[] buildMdnsQuery(String name) {
         ByteArrayOutputStream bo = new ByteArrayOutputStream();
@@ -864,48 +1073,150 @@ final class Net {
     }
 
     static String inferType(Dev d, Set<Integer> open) {
-        if (d.isGw) return "路由器 / 光猫";
-        if (d.isMe) return "本机（你）";
+        StringBuilder why = new StringBuilder();
+
+        if (d.isGw) { d.reason = "默认网关地址"; return "路由器 / 光猫"; }
+        if (d.isMe) { d.reason = "本机 IP"; return "本机（你）"; }
+
+        String up = (d.upnpName == null ? "" : d.upnpName).toLowerCase(Locale.US);
+        String md = (d.model == null ? "" : d.model);
+        String mdLow = md.toLowerCase(Locale.US);
+        String br = (d.vendor == null ? "" : d.vendor).toLowerCase(Locale.US);
+        String nb = (d.netbios == null ? "" : d.netbios);
+        String nbLow = nb.toLowerCase(Locale.US);
+        String host = (d.host == null ? "" : d.host).toLowerCase(Locale.US);
+
+        // ---- 1) NetBIOS 名字：Windows 电脑最硬的证据 ----
+        if (!nb.isEmpty()) {
+            if (nbLow.contains("desktop") || nbLow.contains("laptop") || nbLow.contains("pc-")
+                    || nbLow.contains("thinkpad") || nbLow.contains("win")) {
+                d.reason = "NetBIOS 机器名 " + nb;
+                return "Windows 电脑";
+            }
+            if (nbLow.contains("nas") || nbLow.contains("diskstation") || nbLow.contains("synology")) {
+                d.reason = "NetBIOS 机器名 " + nb;
+                return "NAS / 服务器";
+            }
+        }
+
+        // ---- 2) UPnP 描述：电视/盒子/打印机/音箱最准 ----
+        String upAll = up + " " + mdLow + " " + br;
+        if (upAll.contains("tv") || upAll.contains("mibox") || upAll.contains("mitv")
+                || upAll.contains("bravia") || upAll.contains("roku") || upAll.contains("appletv")
+                || upAll.contains("chromecast") || upAll.contains("dlna") || upAll.contains("media renderer")) {
+            d.reason = "UPnP 报出型号 " + (md.isEmpty() ? d.upnpName : md);
+            return "电视 / 盒子";
+        }
+        if (upAll.contains("printer") || upAll.contains("laserjet") || upAll.contains("officejet")
+                || upAll.contains("epson") || upAll.contains("brother")) {
+            d.reason = "UPnP 报出打印机 " + (md.isEmpty() ? d.upnpName : md);
+            return "打印机";
+        }
+        if (upAll.contains("router") || upAll.contains("gateway") || upAll.contains("ont")
+                || upAll.contains("access point") || upAll.contains("wifi")) {
+            d.reason = "UPnP 报出网关设备";
+            return "路由器 / 光猫";
+        }
+        if (upAll.contains("speaker") || upAll.contains("sound") || upAll.contains("sonos")
+                || upAll.contains("echo") || upAll.contains("homepod")) {
+            d.reason = "UPnP 报出音箱";
+            return "智能音箱";
+        }
+        if (upAll.contains("nas") || upAll.contains("diskstation") || upAll.contains("synology")
+                || upAll.contains("qnap")) {
+            d.reason = "UPnP 报出 NAS 型号";
+            return "NAS / 服务器";
+        }
+
+        // ---- 3) mDNS ----
         if (!TextUtils_isEmpty(d.mdns)) {
             String t = d.mdns;
-            if (t.contains("Chromecast")) return "电视 / 盒子（Chromecast）";
-            if (t.contains("AirPlay") || t.contains("苹果")) return "电视 / 盒子（AirPlay）";
-            if (t.contains("打印机")) return "打印机";
-            if (t.contains("SMB") || t.contains("苹果文件共享")) return "电脑 / NAS";
-            if (t.contains("HomeKit") || t.contains("小米 IoT")) return "智能家居";
-            if (t.contains("Spotify")) return "智能音箱";
+            if (t.contains("Chromecast")) { d.reason = "mDNS 广播 Chromecast"; return "电视 / 盒子"; }
+            if (t.contains("AirPlay")) { d.reason = "mDNS 广播 AirPlay"; return "电视 / 盒子"; }
+            if (t.contains("打印机")) { d.reason = "mDNS 广播打印服务"; return "打印机"; }
+            if (t.contains("SMB") || t.contains("苹果文件共享")) { d.reason = "mDNS 广播文件共享"; return "电脑 / NAS"; }
+            if (t.contains("HomeKit") || t.contains("小米 IoT")) { d.reason = "mDNS 广播智能家居"; return "智能家居"; }
+            if (t.contains("Spotify")) { d.reason = "mDNS 广播 Spotify"; return "智能音箱"; }
         }
-        if (open.contains(9100) || open.contains(631) || open.contains(515)) return "打印机";
-        if (open.contains(62078)) return "iPhone / iPad";
-        if (open.contains(3389) || open.contains(445) || open.contains(139)) return "Windows 电脑";
-        if (open.contains(554) || open.contains(8009) || open.contains(7000) || open.contains(5000)) return "电视 / 盒子";
-        if (open.contains(22)) return "NAS / 服务器";
-        String h = (d.host == null ? "" : d.host).toLowerCase(Locale.US);
-        if (h.contains("iphone") || h.contains("ipad") || h.contains("android") || h.contains("redmi")
-                || h.contains("huawei") || h.contains("oppo") || h.contains("vivo") || h.contains("xiaomi")
-                || h.contains("honor") || h.contains("phone")) return "手机";
-        if (h.contains("desktop") || h.contains("laptop") || h.contains("pc") || h.contains("macbook")
-                || h.contains("windows") || h.contains("thinkpad")) return "电脑";
-        if (h.contains("tv") || h.contains("box") || h.contains("mi-") || h.contains("appletv")) return "电视 / 盒子";
-        if (h.contains("print") || h.contains("hp-") || h.contains("brother") || h.contains("epson")) return "打印机";
-        if (h.contains("router") || h.contains("gateway") || h.contains("miwifi") || h.contains("tplink")) return "路由器";
-        if (h.contains("nas") || h.contains("diskstation") || h.contains("synology")) return "NAS";
-        if (d.ttl >= 0) {
-            if (d.ttl >= 250) return "网络设备";
-            if (d.ttl >= 120) return "Windows 电脑";
-            if (d.ttl >= 60) return "手机 / Linux";
-            if (d.ttl >= 30) return "网络设备";
+
+        // ---- 4) 端口指纹 ----
+        if (open != null) {
+            if (open.contains(9100) || open.contains(631) || open.contains(515)) {
+                d.reason = "开着打印端口";
+                return "打印机";
+            }
+            if (open.contains(62078)) { d.reason = "开着 62078（iOS 同步端口）"; return "iPhone / iPad"; }
+            if (open.contains(3389)) { d.reason = "开着 3389（远程桌面）"; return "Windows 电脑"; }
+            if (open.contains(445) || open.contains(139)) { d.reason = "开着文件共享端口"; return "Windows / SMB 设备"; }
+            if (open.contains(554) || open.contains(8009) || open.contains(7000) || open.contains(5000)) {
+                d.reason = "开着投屏/流媒体端口";
+                return "电视 / 盒子";
+            }
+            if (open.contains(22)) { d.reason = "开着 22（SSH）"; return "NAS / 服务器"; }
+            if (open.contains(5555)) { d.reason = "开着 5555（ADB，多半是安卓设备）"; return "手机 / 安卓设备"; }
         }
-        String v = d.vendor == null ? "" : d.vendor;
-        if (v.contains("Apple") || v.contains("Xiaomi") || v.contains("Huawei") || v.contains("Samsung")
-                || v.contains("OPPO") || v.contains("vivo") || v.contains("Honor") || v.contains("realme")
-                || v.contains("Meizu") || v.contains("OnePlus")) return "手机";
-        if (v.contains("打印机")) return "打印机";
-        if (v.contains("电视")) return "电视 / 盒子";
-        if (v.contains("树莓派") || v.contains("群晖") || v.contains("NAS")) return "NAS";
-        if (v.contains("虚拟机") || v.contains("网卡")) return "电脑";
-        if (v.contains("TP-Link") || v.contains("Tenda") || v.contains("Netgear") || v.contains("D-Link")
-                || v.contains("Ubiquiti") || v.contains("路由") || v.contains("中兴")) return "路由器";
+
+        // ---- 5) 主机名 ----
+        String h = host;
+        if (h.contains("iphone") || h.contains("ipad")) { d.reason = "主机名 " + d.host; return "iPhone / iPad"; }
+        if (h.contains("android") || h.contains("redmi") || h.contains("huawei") || h.contains("oppo")
+                || h.contains("vivo") || h.contains("xiaomi") || h.contains("honor") || h.contains("phone")) {
+            d.reason = "主机名 " + d.host;
+            return "手机";
+        }
+        if (h.contains("desktop") || h.contains("laptop") || h.contains("macbook")
+                || h.contains("windows") || h.contains("thinkpad")) {
+            d.reason = "主机名 " + d.host;
+            return "电脑";
+        }
+        if (h.contains("tv") || h.contains("box")) { d.reason = "主机名 " + d.host; return "电视 / 盒子"; }
+        if (h.contains("print")) { d.reason = "主机名 " + d.host; return "打印机"; }
+        if (h.contains("router") || h.contains("gateway") || h.contains("miwifi") || h.contains("tplink")) {
+            d.reason = "主机名 " + d.host;
+            return "路由器";
+        }
+        if (h.contains("nas") || h.contains("diskstation")) { d.reason = "主机名 " + d.host; return "NAS"; }
+
+        // ---- 6) TTL 兜底 ----
+        if (d.ttl > 0) {
+            if (d.ttl >= 250) { d.reason = "TTL " + d.ttl + " → 网络设备"; return "网络设备"; }
+            if (d.ttl >= 120) { d.reason = "TTL " + d.ttl + " → Windows 系"; return "电脑（Windows 系）"; }
+            if (d.ttl >= 55) { d.reason = "TTL " + d.ttl + " → Android / Linux 系"; return "手机 / 平板（安卓系）"; }
+            if (d.ttl >= 30) { d.reason = "TTL " + d.ttl + " → 网络设备"; return "网络设备"; }
+        }
+
+        // ---- 7) 厂商 ----
+        String v = br;
+        if (v.contains("apple")) { d.reason = "厂商 " + d.vendor; return "苹果设备"; }
+        if (v.contains("xiaomi") || v.contains("huawei") || v.contains("samsung") || v.contains("oppo")
+                || v.contains("vivo") || v.contains("honor") || v.contains("realme")
+                || v.contains("meizu") || v.contains("oneplus")) {
+            d.reason = "厂商 " + d.vendor;
+            return "手机 / 平板";
+        }
+        if (v.contains("打印机")) { d.reason = "厂商 " + d.vendor; return "打印机"; }
+        if (v.contains("电视")) { d.reason = "厂商 " + d.vendor; return "电视 / 盒子"; }
+        if (v.contains("树莓派") || v.contains("群晖") || v.contains("nas")) {
+            d.reason = "厂商 " + d.vendor;
+            return "NAS / 服务器";
+        }
+        if (v.contains("虚拟机")) { d.reason = "厂商 " + d.vendor; return "电脑（虚拟机）"; }
+        if (v.contains("tplink") || v.contains("tenda") || v.contains("netgear") || v.contains("d-link")
+                || v.contains("ubiquiti") || v.contains("路由") || v.contains("中兴") || v.contains("h3c")
+                || v.contains("华为网关")) {
+            d.reason = "厂商 " + d.vendor;
+            return "路由器 / 网络设备";
+        }
+
+        // ---- 8) 实在认不出：至少说清「为什么认不出」，别只丢一个未知 ----
+        StringBuilder miss = new StringBuilder("认不出：");
+        if (d.macHidden) miss.append("MAC 被系统屏蔽");
+        else if (TextUtils_isEmpty(d.mac)) miss.append("拿不到 MAC");
+        else if (TextUtils_isEmpty(d.vendor)) miss.append("MAC 不在厂商库");
+        if (TextUtils_isEmpty(d.upnpName) && TextUtils_isEmpty(d.mdns)) miss.append("、无 UPnP/mDNS 应答");
+        if (d.ttl <= 0) miss.append("、ping 无回显");
+        if (open == null || open.isEmpty()) miss.append("、所有探测端口都关");
+        d.reason = miss.toString();
         return "未知设备";
     }
 
@@ -913,20 +1224,37 @@ final class Net {
         if (type == null) return "??";
         if (type.contains("路由") || type.contains("光猫")) return "RT";
         if (type.contains("本机")) return "ME";
-        if (type.contains("手机") || type.contains("iPhone")) return "PH";
+        if (type.contains("手机") || type.contains("平板") || type.contains("iPhone") || type.contains("安卓")) return "PH";
         if (type.contains("电脑") || type.contains("Windows")) return "PC";
-        if (type.contains("电视")) return "TV";
+        if (type.contains("电视") || type.contains("盒子")) return "TV";
         if (type.contains("打印")) return "PR";
         if (type.contains("NAS") || type.contains("服务器")) return "NS";
         if (type.contains("智能家居") || type.contains("音箱")) return "SH";
+        if (type.contains("苹果")) return "PH";
+        if (type.contains("网络设备")) return "NW";
         return "??";
     }
 
-    /** 设备名的短标签，用于卡片副标题。 */
+    /** 设备卡片副标题：优先显示「型号 / 名称」，实在没有才说读不到。 */
     static String devTag(Dev d) {
+        if (!TextUtils_isEmpty(d.upnpName)) {
+            String s = d.upnpName;
+            if (!TextUtils_isEmpty(d.model) && !s.contains(d.model)) s = s + " · " + d.model;
+            return s;
+        }
+        if (!TextUtils_isEmpty(d.model)) return d.model;
+        if (!TextUtils_isEmpty(d.netbios)) return d.netbios;
+        if (!TextUtils_isEmpty(d.host)) return d.host;
         if (!TextUtils_isEmpty(d.mdns)) return d.mdns;
         if (!TextUtils_isEmpty(d.vendor)) return d.vendor;
-        if (!TextUtils_isEmpty(d.host)) return d.host;
-        return "厂商读不到";
+        // 最后兜底也要说清理由，不再只写「厂商读不到」
+        if (d.macHidden) return "MAC 被系统屏蔽（Android 10+ 限制）";
+        if (TextUtils_isEmpty(d.mac)) return "拿不到 MAC 地址";
+        return "MAC " + shortMac(d.mac) + " 不在厂商库";
+    }
+
+    static String shortMac(String mac) {
+        if (mac == null || mac.length() < 8) return "";
+        return mac.substring(0, 8);
     }
 }
