@@ -2,15 +2,15 @@
 
 一个只用手机就能把「网到底哪一段慢」测出来的 Android App。
 
-**下载安装包（v2.4）**
+**下载安装包（v2.5）**
 
-https://github.com/zxxi-pk/WifiScanApp/releases/download/v2.4/WiFiCheck-v2.4.apk
+https://github.com/zxxi-pk/WifiScanApp/releases/download/v2.5/WiFiCheck-v2.5.apk
 
 > 装之前如果装过旧版，**先卸载旧版**（调试签名每次重新生成，覆盖安装会报「应用未安装」）。
 
 ---
 
-## v2.4 修了什么
+## v2.5 修了什么
 
 | 问题 | 根因 | 修法 |
 |---|---|---|
