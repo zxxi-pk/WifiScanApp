@@ -135,3 +135,18 @@ https://github.com/zxxi-pk/WifiScanApp/releases/download/v2.0/WiFiCheck-v2.0.apk
 GitHub Actions 自动出包（`.github/workflows/build.yml`），推 main 即编译。
 
 自绘控件全部不依赖图表库：`ScoreRing.java` / `Band.java` / `ChannelChart.java` / `SpeedRing.java`。
+
+---
+
+## 同类开源项目对照（2026-11 检索）
+
+| 项目 | 星 | 语言 | 它做什么 | 和本 App 的差别 |
+|---|---|---|---|---|
+| [VREMSoftwareDevelopment/WiFiAnalyzer](https://github.com/VREMSoftwareDevelopment/WiFiAnalyzer) | 5060 | Kotlin | 信号强度曲线、信道图、AP 列表 | 只做「周边信号分析」，没有延迟/测速/设备扫描；GPL-3.0 |
+| [librespeed/speedtest-android](https://github.com/librespeed/speedtest-android) | 445 | Java | 完整测速 App 模板，要自建服务器 | 只测带宽，要配 LibreSpeed 后端 |
+| [david-x3d/Flare](https://github.com/david-x3d/Flare) | 0 | Kotlin | ping/jitter/上下行，走 Cloudflare | 思路和本 App 测速部分几乎一样（MIT） |
+| [sxi9/samurai-scan](https://github.com/sxi9/samurai-scan) | 0 | Kotlin | WiFi/LAN 扫描 + 设备指纹 | 和本 App 设备页同类，更偏渗透（MIT） |
+| [tdr2d/Wifi-Monitor](https://github.com/tdr2d/Wifi-Monitor) | 3 | Java | 列同网段设备 | 2017 年后没更新 |
+| [kenarkerim/bufferbloat-test-tools](https://github.com/kenarkerim/bufferbloat-test-tools) | 5 | TypeScript | bufferbloat 与延迟波动测试 | 网页版，不是 App |
+
+**结论**：把「周边信道分析 + 两段 ping 归因 + 测速 + 局域网设备 + 100 分总分」拼成一个 App 的，没找到同类。主流都是单点工具（要么只分析信号，要么只测速，要么只扫设备）。
