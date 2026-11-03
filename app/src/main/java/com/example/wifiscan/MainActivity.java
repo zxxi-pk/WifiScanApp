@@ -69,6 +69,9 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvOvDown, tvOvDownState, tvOvDev, tvOvDevState;
     private Button btnRun;
     private TextView tvRunStatus, tvScoreBreak;
+    private android.widget.ProgressBar pbRun;
+    private View runSteps;
+    private TextView st1, st2, st3, st4;
 
     // ---- 诊断 ----
     private TextView tvDiagMeta;
@@ -96,6 +99,8 @@ public class MainActivity extends AppCompatActivity {
     private View speedVerdictBox;
 
     private TextView tvDevTotal, tvDevKnown, tvDevUnknown, tvDevVerdict, tvDevAdvice;
+    private TextView tvDevScanState, tvDevPinged;
+    private android.widget.ProgressBar pbDev;
     private LinearLayout devList;
     private View devVerdictBox;
 
@@ -243,6 +248,12 @@ public class MainActivity extends AppCompatActivity {
         btnRun = findViewById(R.id.btnRun);
         tvRunStatus = findViewById(R.id.tvRunStatus);
         tvScoreBreak = findViewById(R.id.tvScoreBreak);
+        pbRun = findViewById(R.id.pbRun);
+        runSteps = findViewById(R.id.runSteps);
+        st1 = findViewById(R.id.st1);
+        st2 = findViewById(R.id.st2);
+        st3 = findViewById(R.id.st3);
+        st4 = findViewById(R.id.st4);
 
         findViewById(R.id.ovLat).setOnClickListener(v -> jumpDiag(0));
         findViewById(R.id.ovLoss).setOnClickListener(v -> jumpDiag(0));
@@ -316,6 +327,9 @@ public class MainActivity extends AppCompatActivity {
         tvSpeedAdvice = findViewById(R.id.tvSpeedAdvice);
 
         tvDevTotal = findViewById(R.id.tvDevTotal);
+        tvDevScanState = findViewById(R.id.tvDevScanState);
+        pbDev = findViewById(R.id.pbDev);
+        tvDevPinged = findViewById(R.id.tvDevPinged);
         tvDevKnown = findViewById(R.id.tvDevKnown);
         tvDevUnknown = findViewById(R.id.tvDevUnknown);
         devList = findViewById(R.id.devList);
@@ -426,7 +440,11 @@ public class MainActivity extends AppCompatActivity {
         wifi = Net.readWifi(this);
         gateway = Net.getGatewayIp(this);
         localIp = Net.getLocalIp(this);
+        applyHead();
+    }
 
+    /** 只碰 UI，必须在主线程调用。 */
+    private void applyHead() {
         String name = TextUtils.isEmpty(wifi.ssid) ? "（未连 WiFi 或读不到名称）" : wifi.ssid;
         tvSsid.setText(name);
         tvNetMeta.setText(wifi.band + " · " + wifi.rssi + " dBm · 协商 " + wifi.linkMbps + " Mbps");
@@ -451,50 +469,72 @@ public class MainActivity extends AppCompatActivity {
         downMbps = -1;
         upMbps = -1;
         ringSpeed.setValue(0, "—", "Mbps");
+        pbRun.setVisibility(View.VISIBLE);
+        pbRun.setProgress(0);
+        runSteps.setVisibility(View.VISIBLE);
+        resetSteps();
 
         pool.execute(() -> {
-            refreshHead();
-            final String gw = gateway;
-            final String me = localIp;
+            // 后台线程只碰数据，界面一律 post 回主线程
+            final Net.WifiBrief wb = Net.readWifi(this);
+            final String gw = Net.getGatewayIp(this);
+            final String me = Net.getLocalIp(this);
+            wifi = wb;
+            gateway = gw;
+            localIp = me;
+            ui.post(this::applyHead);
 
-            // 1) 延迟
-            status("第 1/4 步：测延迟…");
+            // 1) 延迟 0→25
+            progress(2, "第 1/4 步：测第一跳延迟…", 1);
             final Net.PingStat g = TextUtils.isEmpty(gw) ? new Net.PingStat()
-                    : Net.pingHost(gw, 8, s -> ui.post(() -> {
-                        tvGwVal.setText(fmt("%.0f ms", s.avg()));
-                        tvLossBig.setText(fmt("%.0f%%", s.loss()));
-                        bandGw.setRatio(Math.min(1, s.avg() / 120.0));
-                    }));
-            final Net.PingStat w = Net.pingHost("223.5.5.5", 8, s -> ui.post(() -> {
-                tvWanVal.setText(fmt("%.0f ms", s.avg()));
-                bandWan.setRatio(Math.min(1, s.avg() / 300.0));
-            }));
+                    : Net.pingHost(gw, 8, s -> {
+                        ui.post(() -> {
+                            tvGwVal.setText(fmt("%.0f ms", s.avg()));
+                            tvLossBig.setText(fmt("%.0f%%", s.loss()));
+                            bandGw.setRatio(Math.min(1, s.avg() / 120.0));
+                            tvOvLat.setText(fmt("%.0f", s.avg()));
+                            pbRun.setProgress(2 + s.recv);
+                        });
+                    });
+            progress(12, "测出网延迟…", 1);
+            final Net.PingStat w = Net.pingHost("223.5.5.5", 8, s -> {
+                ui.post(() -> {
+                    tvWanVal.setText(fmt("%.0f ms", s.avg()));
+                    bandWan.setRatio(Math.min(1, s.avg() / 300.0));
+                    pbRun.setProgress(12 + s.recv);
+                });
+            });
             statGw = g;
             statWan = w;
             ui.post(() -> paintLatency(g, w));
+            stepDone(1);
 
-            // 2) 信道
-            status("第 2/4 步：扫周边 WiFi…");
+            // 2) 信道 25→50
+            progress(26, "第 2/4 步：扫周边 WiFi…", 2);
             final int[] cc = new int[13];
             final int[] r = new int[]{0, -1, -1};
+            final List<ScanResult> found = new ArrayList<>();
             try {
                 if (wm != null) {
                     wm.startScan();
-                    Thread.sleep(2400);
+                    for (int k = 0; k < 12; k++) {
+                        Thread.sleep(200);
+                        final int pr = 26 + k * 2;
+                        ui.post(() -> pbRun.setProgress(pr));
+                    }
                     List<ScanResult> rs = wm.getScanResults();
                     if (rs != null) {
-                        Collections.sort(rs, (a, b2) -> Integer.compare(b2.level, a.level));
-                        final int total = rs.size();
-                        for (int i = 0; i < total; i++) {
-                            ScanResult sr = rs.get(i);
+                        found.addAll(rs);
+                        Collections.sort(found, (a, b2) -> Integer.compare(b2.level, a.level));
+                        for (ScanResult sr : found) {
                             int ch = freqToCh(sr.frequency);
                             if (ch >= 1 && ch <= 13 && sr.level > -85) cc[ch - 1]++;
                             r[0]++;
                         }
-                        int cur = chFromFreq(wifi.freq);
+                        int cur = chFromFreq(wb.freq);
                         r[1] = cur;
                         r[2] = bestChannel(cc);
-                        final List<ScanResult> copy = rs;
+                        final List<ScanResult> copy = new ArrayList<>(found);
                         ui.post(() -> paintAps(copy, cc, cur, r[2]));
                     }
                 }
@@ -504,13 +544,16 @@ public class MainActivity extends AppCompatActivity {
             apCount = r[0];
             curChannel = r[1];
             sugChannel = r[2];
+            ui.post(() -> pbRun.setProgress(50));
+            stepDone(2);
 
-            // 3) 带宽
-            status("第 3/4 步：测下载…");
+            // 3) 带宽 50→80
+            progress(52, "第 3/4 步：测下载…", 3);
             startPulse();
             Net.SpeedResult d = Net.measureDownloadTiered((done, total, mbps) -> ui.post(() -> {
                 ringSpeed.setRunning(true, mbps, fmt("%.1f", mbps));
                 tvSpeedStatus.setText("已下载 " + fmt("%.1f", done / 1048576.0) + " / " + fmt("%.0f", total / 1048576.0) + " MB");
+                pbRun.setProgress((int) Math.min(72, 52 + 20 * done / Math.max(1, total)));
             }), (idx, bytes) -> ui.post(() -> {
                 String lbl;
                 if (bytes <= 1000000) lbl = "试水 1 MB";
@@ -518,28 +561,34 @@ public class MainActivity extends AppCompatActivity {
                 else lbl = "8 MB 还快，加码到 20 MB";
                 tvSpeedTier.setText("分档测速 · " + lbl);
                 tierLabel = lbl;
+                pbRun.setProgress(52 + idx * 6);
             }));
             stopPulse();
             downMbps = d.ok ? d.mbps : -1;
             downMs = d.ok ? d.ms : -1;
             ui.post(() -> paintDown(d));
+            ui.post(() -> pbRun.setProgress(74));
 
-            status("第 4/4 步：测上传…");
+            progress(76, "测上传…", 3);
             Net.SpeedResult u = Net.measureUpload((done, total, mbps) -> ui.post(() -> {
                 ringSpeed.setRunning(true, mbps, fmt("%.1f", mbps));
                 tvSpeedStatus.setText("已上传 " + fmt("%.1f", done / 1048576.0) + " / " + fmt("%.0f", total / 1048576.0) + " MB");
+                pbRun.setProgress((int) Math.min(80, 76 + 4 * done / Math.max(1, total)));
             }));
             upMbps = u.ok ? u.mbps : -1;
             ui.post(() -> paintUp(u));
+            stepDone(3);
 
-            // 4) 设备
-            status("最后一趟：扫局域网设备…");
-            final List<Net.Dev> found = scanLan(gw, me);
-            devices = found;
+            // 4) 设备 80→100
+            progress(82, "最后一趟：扫局域网设备…", 4);
+            final List<Net.Dev> devs = scanLan(gw, me);
+            devices = devs;
             int stray = 0;
-            for (Net.Dev x : found) if (!x.isGw && !x.isMe && "未知设备".equals(x.type)) stray++;
+            for (Net.Dev x : devs) if (!x.isGw && !x.isMe && "未知设备".equals(x.type)) stray++;
             strayCount = stray;
-            ui.post(() -> paintDevices(found));
+            ui.post(() -> paintDevices(devs));
+            stepDone(4);
+            ui.post(() -> pbRun.setProgress(100));
 
             lastCheckAt = System.currentTimeMillis();
             ui.post(() -> {
@@ -552,6 +601,41 @@ public class MainActivity extends AppCompatActivity {
                 status("");
                 toast("检测完成");
             });
+        });
+    }
+
+    // ---- 进度条与分步指示 ----
+
+    private void progress(int pct, String s, int step) {
+        ui.post(() -> {
+            pbRun.setProgress(pct);
+            tvRunStatus.setText(s);
+            highlightStep(step);
+        });
+    }
+
+    private void resetSteps() {
+        for (TextView t : new TextView[]{st1, st2, st3, st4}) {
+            t.setTextColor(0xFFB0B8C4);
+            t.setTypeface(null, android.graphics.Typeface.NORMAL);
+        }
+    }
+
+    private void highlightStep(int idx) {
+        TextView[] all = {st1, st2, st3, st4};
+        for (int i = 0; i < 4; i++) {
+            boolean done = i + 1 < idx;
+            boolean now = i + 1 == idx;
+            all[i].setTextColor(done ? C_OK : (now ? C_INK : 0xFFB0B8C4));
+            all[i].setTypeface(null, (done || now) ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        }
+    }
+
+    private void stepDone(int idx) {
+        ui.post(() -> {
+            TextView[] all = {st1, st2, st3, st4};
+            all[idx - 1].setTextColor(C_OK);
+            all[idx - 1].setTypeface(null, android.graphics.Typeface.BOLD);
         });
     }
 
@@ -725,16 +809,39 @@ public class MainActivity extends AppCompatActivity {
         }
 
         tvOvDev.setText(String.valueOf(list.size()));
-        tvOvDevState.setText(strayCount == 0 ? "全部认识" : (strayCount + " 台陌生"));
-        tvOvDevState.setTextColor(strayCount == 0 ? C_OK : C_BAD);
+        if (list.isEmpty()) {
+            tvOvDevState.setText("一台都没扫到");
+            tvOvDevState.setTextColor(C_BAD);
+        } else if (strayCount == 0) {
+            tvOvDevState.setText("全部认识");
+            tvOvDevState.setTextColor(C_OK);
+        } else {
+            tvOvDevState.setText(strayCount + " 台陌生");
+            tvOvDevState.setTextColor(C_BAD);
+        }
 
-        if (strayCount == 0) {
+        pbDev.setVisibility(View.GONE);
+        tvDevPinged.setText("");
+
+        if (list.isEmpty()) {
+            tvDevScanState.setText("扫描完成，但一台都没扫到");
+            tvDevScanState.setTextColor(C_BAD);
+            tint(devVerdictBox, R.drawable.tint_red);
+            tvDevVerdict.setTextColor(C_BAD);
+            tvDevVerdict.setText("局域网里一台设备都没扫到");
+            tvDevAdvice.setTextColor(0xFF7A3B36);
+            tvDevAdvice.setText("不是「全部认识」，是真的没扫到。常见原因：\n1. 手机没连 WiFi，或连的是房东的访客网络（AP 隔离，设备之间互相看不见）\n2. 路由器开了「AP 隔离 / 客户端隔离」\n3. 网关地址读不到（先回总览看头部有没有显示网关）\n先试：总览页看网关是不是 192.168.x.1 这类地址，再去路由器后台关掉「AP 隔离」。");
+        } else if (strayCount == 0) {
+            tvDevScanState.setText("扫描完成 · " + list.size() + " 台在线");
+            tvDevScanState.setTextColor(C_OK);
             tint(devVerdictBox, R.drawable.tint_green);
             tvDevVerdict.setTextColor(C_OK);
             tvDevVerdict.setText("没有陌生设备");
             tvDevAdvice.setTextColor(0xFF0B6B4C);
             tvDevAdvice.setText("在线设备都认得出。如果还是卡，问题不在蹭网，去看「带宽」。");
         } else {
+            tvDevScanState.setText("扫描完成 · " + list.size() + " 台在线，" + strayCount + " 台陌生");
+            tvDevScanState.setTextColor(C_WARN);
             tint(devVerdictBox, R.drawable.tint_amber);
             tvDevVerdict.setTextColor(C_WARN);
             tvDevVerdict.setText("有 " + strayCount + " 台认不出来的设备");
@@ -1053,23 +1160,43 @@ public class MainActivity extends AppCompatActivity {
 
     private List<Net.Dev> scanLan(String gw, String me) {
         final List<Net.Dev> out = new ArrayList<>();
-        if (TextUtils.isEmpty(gw)) return out;
+        if (TextUtils.isEmpty(gw)) {
+            ui.post(() -> {
+                tvDevScanState.setText("拿不到网关地址，扫不了局域网。先确认手机连着 WiFi。");
+                tvDevScanState.setTextColor(C_BAD);
+            });
+            return out;
+        }
         String base = Net.subnetBase(gw);
         if (TextUtils.isEmpty(base)) return out;
 
+        ui.post(() -> {
+            tvDevScanState.setText("正在扫 " + base + "0/24 网段…");
+            tvDevScanState.setTextColor(C_SUB);
+            pbDev.setVisibility(View.VISIBLE);
+            pbDev.setProgress(0);
+            tvDevPinged.setText("");
+        });
+
         final List<String> live = Collections.synchronizedList(new ArrayList<>());
-        final int[] done = {0};
+        final java.util.concurrent.atomic.AtomicInteger done = new java.util.concurrent.atomic.AtomicInteger(0);
         ExecutorService p = Executors.newFixedThreadPool(40);
         for (int i = 1; i <= 254; i++) {
             final String ip = base + "." + i;
             p.execute(() -> {
                 if (Net.pingOnce(ip)) live.add(ip);
-                done[0]++;
-                if (done[0] % 25 == 0) status("已扫 " + done[0] + "/254…");
+                int d = done.incrementAndGet();
+                if (d % 10 == 0 || d == 254) {
+                    final int dd = d, ll = live.size();
+                    ui.post(() -> {
+                        pbDev.setProgress(dd);
+                        tvDevPinged.setText("已 ping " + dd + "/254，回应 " + ll + " 台");
+                    });
+                }
             });
         }
         p.shutdown();
-        try { p.awaitTermination(40, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignored) {}
+        try { p.awaitTermination(45, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignored) {}
 
         java.util.Map<String, String> arp = Net.readArp();
         for (String ip : new ArrayList<>(live)) {
@@ -1078,8 +1205,9 @@ public class MainActivity extends AppCompatActivity {
         List<String> ips = new ArrayList<>(arp.keySet());
         Collections.sort(ips, (a, b) -> Integer.compare(Net.ipInt(a), Net.ipInt(b)));
 
+        ui.post(() -> tvDevScanState.setText("找到 " + ips.size() + " 个地址，正在认设备…"));
+
         // mDNS：认出 Chromecast / AirPlay / 打印机 / 智能家居这类靠端口认不出的设备
-        status("问一圈 mDNS 设备名…");
         WifiManager.MulticastLock ml = null;
         final java.util.Map<String, String> mdns;
         try {
@@ -1096,6 +1224,10 @@ public class MainActivity extends AppCompatActivity {
             if (ml != null) {
                 try { if (ml.isHeld()) ml.release(); } catch (Throwable ignored) {}
             }
+        }
+        if (!mdns.isEmpty()) {
+            final int m = mdns.size();
+            ui.post(() -> tvDevScanState.setText("mDNS 认出 " + m + " 台，正在补全信息…"));
         }
 
         ExecutorService idp = Executors.newFixedThreadPool(12);

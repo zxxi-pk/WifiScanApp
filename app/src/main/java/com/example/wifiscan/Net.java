@@ -125,6 +125,14 @@ final class Net {
                 if (d != null && d.gateway != 0) return intToIp(d.gateway);
             }
         } catch (Throwable ignored) {}
+        // 最后兜底：拿本机 IP 推同网段 .1（Android 12+ 有些机型 getDhcpInfo 已失效）
+        try {
+            String me = getLocalIp(c);
+            if (me != null && me.contains(".")) {
+                String base = subnetBase(me);
+                if (!base.isEmpty()) return base + "1";
+            }
+        } catch (Throwable ignored) {}
         return "";
     }
 
@@ -227,26 +235,53 @@ final class Net {
         return s;
     }
 
+    /** 判断主机是否在线。三步兜底：ping 命令 → TCP 探活 → isReachable。
+     *  Android 9+ 部分机型已收回 ping 的 raw socket 权限，ping 会直接 "Operation not permitted"，
+     *  所以绝不能只靠 ping，否则整个网段都会被判成"没有设备"。 */
     static boolean pingOnce(String ip) {
+        if (pingShell(ip)) return true;
+        if (tcpProbe(ip)) return true;
+        try {
+            return InetAddress.getByName(ip).isReachable(600);
+        } catch (Throwable e) { return false; }
+    }
+
+    private static boolean pingShell(String ip) {
         Process proc = null;
+        BufferedReader br = null;
         try {
             proc = Runtime.getRuntime().exec(new String[]{"/system/bin/ping", "-c", "1", "-W", "1", ip});
-            BufferedReader br = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+            br = new BufferedReader(new InputStreamReader(proc.getInputStream()));
             String line;
             boolean hit = false;
             while ((line = br.readLine()) != null) {
                 if (line.contains("1 received") || line.contains("1 packets received") || line.contains("time=")) hit = true;
             }
-            br.close();
             proc.waitFor();
-            if (hit) return true;
+            return hit;
         } catch (Throwable ignored) {
+            return false;
         } finally {
+            if (br != null) try { br.close(); } catch (Throwable ignored) {}
             if (proc != null) try { proc.destroy(); } catch (Throwable ignored) {}
         }
-        try {
-            return InetAddress.getByName(ip).isReachable(600);
-        } catch (Throwable e) { return false; }
+    }
+
+    private static final int[] PROBE_PORTS = {80, 443, 53, 5555, 8080, 62078, 9100};
+
+    /** 只要有任意常见端口接受连接，就算这台设备活着。不依赖 root 或 ping 权限。 */
+    static boolean tcpProbe(String ip) {
+        for (int port : PROBE_PORTS) {
+            Socket s = new Socket();
+            try {
+                s.connect(new InetSocketAddress(ip, port), 220);
+                return true;
+            } catch (Throwable ignored) {
+            } finally {
+                try { s.close(); } catch (Throwable ignored) {}
+            }
+        }
+        return false;
     }
 
     static int pingTtl(String ip) {
