@@ -67,6 +67,7 @@ public class MainActivity extends AppCompatActivity {
     private ScoreRing ringScore;
     private TextView tvOvLat, tvOvLatState, tvOvLoss, tvOvLossState;
     private TextView tvOvDown, tvOvDownState, tvOvDev, tvOvDevState;
+    private TextView tvOvDownUnit;
     private Button btnRun;
     private TextView tvRunStatus, tvScoreBreak;
     private android.widget.ProgressBar pbRun;
@@ -245,6 +246,7 @@ public class MainActivity extends AppCompatActivity {
         tvOvLoss = findViewById(R.id.tvOvLoss);
         tvOvLossState = findViewById(R.id.tvOvLossState);
         tvOvDown = findViewById(R.id.tvOvDown);
+        tvOvDownUnit = findViewById(R.id.tvOvDownUnit);
         tvOvDownState = findViewById(R.id.tvOvDownState);
         tvOvDev = findViewById(R.id.tvOvDev);
         tvOvDevState = findViewById(R.id.tvOvDevState);
@@ -324,6 +326,8 @@ public class MainActivity extends AppCompatActivity {
         unitMBs.setOnClickListener(v -> setUnit(true));
         showMBs = prefs().getBoolean(K_UNIT, false);
         paintUnitSwitch();
+        // 点总览上的下行数字也能切单位，比找小开关更快
+        tvOvDown.setOnClickListener(v -> setUnit(!showMBs));
         chartSignal = findViewById(R.id.chartSignal);
         tvSignalNow = findViewById(R.id.tvSignalNow);
         tvSignalHint = findViewById(R.id.tvSignalHint);
@@ -873,6 +877,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void paintUnitSwitch() {
+        if (tvOvDownUnit != null) tvOvDownUnit.setText(spdUnit());
         if (unitMbps == null || unitMBs == null) return;
         unitMbps.setBackgroundResource(showMBs ? 0 : R.drawable.seg_on);
         unitMbps.setTextColor(showMBs ? C_SUB : C_INK);
@@ -1313,7 +1318,8 @@ public class MainActivity extends AppCompatActivity {
         ExecutorService p = Executors.newFixedThreadPool(64);
         final java.util.Set<String> toProbe = Collections.synchronizedSet(new java.util.HashSet<>());
         for (int i = 1; i <= 254; i++) {
-            final String ip = base + "." + i;
+            // 注意：Net.subnetBase() 返回值已带尾点（"192.168.1."），这里不能再加 "."
+            final String ip = base + i;
             if (arpPre.containsKey(ip)) { done.incrementAndGet(); continue; }
             toProbe.add(ip);
             p.execute(() -> {

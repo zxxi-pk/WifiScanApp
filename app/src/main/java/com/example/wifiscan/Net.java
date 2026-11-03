@@ -296,14 +296,15 @@ final class Net {
     /** ping 一旦确认不可用就永久降级，避免 254 个地址各浪费 2 秒。 */
     private static volatile boolean pingBroken = false;
 
-    /** 判断主机是否在线。优先 TCP（快、无需权限），ping 只在确认可用时用。
+    /** 判断主机是否在线。TCP 优先（快、无需权限）。
      *  v2.4 关键改动：v2.2 的"ping 优先"导致每个死地址最坏 3.5 秒，
-     *  40 线程跑 254 个地址在 45 秒超时点被截断，高 IP 段（手机/电视）全丢。 */
+     *  40 线程跑 254 个地址在 45 秒超时点被截断，高 IP 段（手机/电视）全丢。
+     *  v2.5：Connection refused 也算在线 —— 对端回 RST 说明它活着，且几毫秒就回。 */
     static boolean pingOnce(String ip) {
         if (tcpProbe(ip)) return true;
         if (!pingBroken && pingShell(ip)) return true;
         try {
-            return InetAddress.getByName(ip).isReachable(500);
+            return InetAddress.getByName(ip).isReachable(400);
         } catch (Throwable e) { return false; }
     }
 
@@ -353,16 +354,26 @@ final class Net {
         return false;
     }
 
-    private static boolean tryPort(String ip, int port, int timeoutMs) {
+    /** 探测单个端口。返回 0=无响应（死地址 / 被丢包），1=端口开着，2=对方回了 RST（主机活着）。 */
+    private static int tryPortState(String ip, int port, int timeoutMs) {
         Socket s = new Socket();
         try {
             s.connect(new InetSocketAddress(ip, port), timeoutMs);
-            return true;
+            return 1;
+        } catch (java.net.ConnectException ce) {
+            // "Connection refused" —— 对端内核回了 RST，说明这台机器活着，只是这个端口没开
+            String m = ce.getMessage();
+            if (m != null && m.toLowerCase(Locale.US).contains("refused")) return 2;
+            return 0;
         } catch (Throwable ignored) {
-            return false;
+            return 0;
         } finally {
             try { s.close(); } catch (Throwable ignored) {}
         }
+    }
+
+    private static boolean tryPort(String ip, int port, int timeoutMs) {
+        return tryPortState(ip, port, timeoutMs) != 0;
     }
 
     static int pingTtl(String ip) {
